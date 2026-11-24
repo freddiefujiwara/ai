@@ -511,6 +511,10 @@ button.ghost.active {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Same flex-shrink guard as the list titles: keep the ellipsis
+     working when the title is long (already held in practice via
+     overflow: hidden, but make it explicit). */
+  min-width: 0;
 }
 
 .messages {
@@ -591,12 +595,20 @@ button.ghost.active {
 .request-item .request-row {
   flex: 1;
   width: auto;
+  /* As a flex item of .request-item, the button's automatic minimum
+     size would otherwise be the title's full min-content width and
+     the row could not shrink below it (long titles overflowed the
+     viewport). min-width: 0 lets it shrink to the row's share. */
+  min-width: 0;
 }
 
 .req-main {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* Fill the button and be shrinkable so .req-title's ellipsis
+     engages instead of the title sizing the whole row. */
+  flex: 1;
   min-width: 0;
 }
 

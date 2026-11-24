@@ -129,6 +129,14 @@ function openNew() {
   view.value = 'thread';
 }
 
+// After the initial load of a thread, land on the latest message
+// (chat-style). Only openThread calls this: polling refreshes and
+// sends keep the current scroll position untouched.
+async function scrollToLatest() {
+  await nextTick();
+  window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
+}
+
 async function openThread(id) {
   currentId.value = id;
   currentTitle.value = (requests.value.find((r) => r.id === id)?.title || '');
@@ -142,6 +150,7 @@ async function openThread(id) {
   } finally {
     threadLoading.value = false;
   }
+  if (messages.value.length > 0) await scrollToLatest();
 }
 
 function backToList() {
