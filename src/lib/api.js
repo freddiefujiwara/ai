@@ -60,6 +60,16 @@ export function answer(sessionToken, id, text, opts) {
   return postJson({ action: 'answer', sessionToken, id, text }, opts);
 }
 
+// 会話に名前を付ける (空文字でクリア)。-> { ok, id, title }
+export function rename(sessionToken, id, title, opts) {
+  return postJson({ action: 'rename', sessionToken, id, title }, opts);
+}
+
+// 会話を削除する (シートからの削除のみ)。-> { ok, id }
+export function deleteRequest(sessionToken, id, opts) {
+  return postJson({ action: 'delete', sessionToken, id }, opts);
+}
+
 // 会話の状態とメッセージ一覧。-> { ok, id, status, round, messages }
 export function result(sessionToken, id, opts) {
   return getJson({ action: 'result', sessionToken, id }, opts);

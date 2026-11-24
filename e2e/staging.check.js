@@ -16,6 +16,12 @@ test("muse staging page loads with banner and sign-in gate", async ({ page }) =>
   await expect(page.getByText("STAGING")).toBeVisible();
   await expect(page.locator(".brand-name")).toHaveText("Muse");
   await expect(page.getByText("Googleログインが必要です")).toBeVisible();
+  const footer = page.locator(".site-footer");
+  await expect(footer).toBeVisible();
+  const topLink = footer.getByRole("link", { name: /トップ/ });
+  await expect(topLink).toHaveAttribute("href", "https://freddiefujiwara.com/");
+  await expect(footer.locator(".copy")).toContainText("freddiefujiwara.com");
+  await expect(footer.locator(".copy")).toContainText("©");
   expect(errors).toEqual([]);
 });
 

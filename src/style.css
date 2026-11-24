@@ -581,3 +581,84 @@ button.ghost.active {
   font-size: 0.9rem;
   margin: 6px 0 12px;
 }
+
+.request-item {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.request-item .request-row {
+  flex: 1;
+  width: auto;
+}
+
+.req-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.req-title {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.req-sub {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.req-sub .req-meta {
+  margin-left: 0;
+}
+
+.danger-btn {
+  background: var(--surface);
+  color: var(--error);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 9px 14px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.danger-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.thread-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.title-input {
+  flex: 1;
+  min-width: 180px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 12px;
+  min-height: 44px;
+}
+
+.thread-loading {
+  display: flex;
+  align-items: center;
+  margin: 12px 0 16px;
+}

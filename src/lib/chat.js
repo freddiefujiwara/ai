@@ -26,6 +26,8 @@ export function normalizeRequests(requests) {
       round: Number(r.round || 1),
       created_at: r.created_at || '',
       last_activity_at: r.last_activity_at || '',
+      title: typeof r.title === 'string' ? r.title : '',
+      preview: typeof r.preview === 'string' ? r.preview : '',
     });
   }
   return out;
@@ -63,6 +65,18 @@ export function threadTitle(messages, fallbackDate) {
     if (line) return line.slice(0, 50);
   }
   return fallbackDate ? formatDateTime(fallbackDate) : '会話';
+}
+
+// 一覧での表示タイトル: カスタム名 > プレビュー (最初の送信文) > 日時。
+// title/preview が無い旧バックエンドの応答でも従来どおり日時に落ちる。
+export function displayTitle(request, fallbackDate) {
+  const r = request || {};
+  const title = typeof r.title === 'string' ? r.title.trim() : '';
+  if (title) return title;
+  const preview = typeof r.preview === 'string' ? r.preview.trim() : '';
+  if (preview) return preview;
+  const date = fallbackDate || r.created_at || '';
+  return date ? formatDateTime(date) : '会話';
 }
 
 export function shouldPoll(status) {

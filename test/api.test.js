@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { postJson, getJson, exchangeSession, ask } from '../src/lib/api.js';
+import { postJson, getJson, exchangeSession, ask, rename, deleteRequest } from '../src/lib/api.js';
 
 function okFetcher(data, seen) {
   return vi.fn(async (url, init) => {
@@ -28,6 +28,15 @@ describe('api wrapper', () => {
     await getJson({ action: 'list', sessionToken: 'tok' }, { apiUrl: 'https://example.invalid/exec', fetcher: okFetcher({ ok: true, requests: [] }, seen) });
     expect(seen[0].url).toContain('action=list');
     expect(seen[0].url).toContain('sessionToken=tok');
+  });
+
+  it('rename and delete send the documented bodies', async () => {
+    const seen = [];
+    const f = okFetcher({ ok: true, id: 'x', title: 't' }, seen);
+    await rename('s', 'x', 'Dummy title', { apiUrl: 'https://example.invalid/exec', fetcher: f });
+    expect(JSON.parse(seen[0].init.body)).toEqual({ action: 'rename', sessionToken: 's', id: 'x', title: 'Dummy title' });
+    await deleteRequest('s', 'x', { apiUrl: 'https://example.invalid/exec', fetcher: f });
+    expect(JSON.parse(seen[1].init.body)).toEqual({ action: 'delete', sessionToken: 's', id: 'x' });
   });
 
   it('exchange_session and ask send the documented bodies', async () => {
