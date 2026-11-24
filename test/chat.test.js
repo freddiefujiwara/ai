@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeRequests, mergeMessages, threadTitle, shouldPoll, formatDateTime, statusLabel } from '../src/lib/chat.js';
+import { normalizeRequests, mergeMessages, threadTitle, shouldPoll, formatDateTime, statusLabel, displayTitle } from '../src/lib/chat.js';
 
 describe('normalizeRequests', () => {
   it('drops junk and duplicate ids, keeps order', () => {
@@ -14,6 +14,16 @@ describe('normalizeRequests', () => {
     expect(out[0].round).toBe(2);
     expect(out[1].status).toBe('pending');
   });
+  it('keeps title and preview, defaults them to empty strings', () => {
+    const out = normalizeRequests([
+      { id: 'a', title: 'Named', preview: 'First line' },
+      { id: 'b' },
+    ]);
+    expect(out[0].title).toBe('Named');
+    expect(out[0].preview).toBe('First line');
+    expect(out[1].title).toBe('');
+    expect(out[1].preview).toBe('');
+  });
   it('returns [] for non-arrays', () => {
     expect(normalizeRequests(null)).toEqual([]);
   });
@@ -25,6 +35,18 @@ describe('mergeMessages', () => {
   it('dedupes and orders out before in within a round', () => {
     expect(mergeMessages([out1], [in1, out1])).toEqual([out1, in1]);
     expect(mergeMessages([], [])).toEqual([]);
+  });
+});
+
+describe('displayTitle', () => {
+  it('prefers the custom title, then preview, then the date', () => {
+    expect(displayTitle({ title: 'Named', preview: 'Prev', created_at: '2026-11-25T00:00:00.000Z' })).toBe('Named');
+    expect(displayTitle({ title: '', preview: 'Prev', created_at: '2026-11-25T00:00:00.000Z' })).toBe('Prev');
+    expect(displayTitle({ title: '', preview: '', created_at: '2026-11-25T00:00:00.000Z' })).toContain('2026');
+    // an old backend that returns neither title nor preview still works
+    expect(displayTitle({ created_at: '2026-11-25T00:00:00.000Z' })).toContain('2026');
+    expect(displayTitle({})).toBe('会話');
+    expect(displayTitle(null)).toBe('会話');
   });
 });
 
