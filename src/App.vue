@@ -4,6 +4,13 @@ import { GOOGLE_CLIENT_ID } from './config.js';
 import { loadSession, saveSession, clearSession } from './lib/session.js';
 import { exchangeSession, ask, answer, result, listRequests, rename, deleteRequest } from './lib/api.js';
 import { normalizeRequests, mergeMessages, threadTitle, statusLabel, shouldPoll, formatDateTime, displayTitle } from './lib/chat.js';
+import { threadIdFromPath, threadPath, listPath } from './lib/route.js';
+
+// スレッド毎URLの土台。本番は "/muse/"、ステージングは
+// "/muse/staging/" (Vite の BASE_URL)。深リンクの復元は
+// index.html / 404.html の spa-github-pages 方式が担う。
+const BASE_URL = import.meta.env.BASE_URL;
+const appBase = listPath(BASE_URL);
 
 const session = ref(null);
 const signingIn = ref(false);
@@ -29,6 +36,28 @@ const editingTitle = ref(false);
 const titleDraft = ref('');
 const savingTitle = ref(false);
 let pollTimer = null;
+// 起動時のURLに会話IDがあり、まだログインしていない場合に保持し、
+// ログイン完了後にその会話を開くための置き場。
+let pendingThreadId = null;
+
+// ---- URL (History API) ----
+// 現在のURLが指す会話ID (一覧なら null)。
+function routeThreadId() {
+  return threadIdFromPath(window.location.pathname, BASE_URL);
+}
+
+function pushThreadUrl(id) {
+  const path = threadPath(id, BASE_URL);
+  if (window.location.pathname !== path) window.history.pushState(null, '', path);
+}
+
+function pushListUrl() {
+  if (window.location.pathname !== appBase) window.history.pushState(null, '', appBase);
+}
+
+function replaceListUrl() {
+  if (window.location.pathname !== appBase) window.history.replaceState(null, '', appBase);
+}
 
 const year = new Date().getFullYear();
 const currentRequest = computed(() => requests.value.find((r) => r.id === currentId.value) || null);
@@ -52,6 +81,10 @@ async function onCredential(response) {
     const data = await exchangeSession(response.credential);
     adoptSession(data);
     await loadList();
+    // 深リンクで来てログインした場合は、その会話を直接開く。
+    const id = pendingThreadId || routeThreadId();
+    pendingThreadId = null;
+    if (id) await openThread(id, { push: false });
   } catch (e) {
     bootError.value = 'ログインに失敗しました。このアプリは本人のGoogleアカウントでのみ利用できます。';
   } finally {
@@ -100,7 +133,12 @@ function signOut() {
   clearSession();
   session.value = null;
   view.value = 'list';
+  currentId.value = null;
+  currentTitle.value = '';
+  messages.value = [];
+  pendingThreadId = null;
   stopPolling();
+  replaceListUrl();
   if (window.google) window.google.accounts.id.disableAutoSelect();
   nextTick(renderSigninButton);
 }
@@ -137,7 +175,10 @@ async function scrollToLatest() {
   window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
 }
 
-async function openThread(id) {
+// push=false は「URLは既にその会話を指している」呼び出し用
+// (深リンク起動・ログイン直後・popstate)。存在しない会話だった場合は
+// エラーを一覧側に出し、URLも一覧へ戻す (リトライはしない)。
+async function openThread(id, { push = true } = {}) {
   currentId.value = id;
   currentTitle.value = (requests.value.find((r) => r.id === id)?.title || '');
   messages.value = [];
@@ -145,22 +186,64 @@ async function openThread(id) {
   editingTitle.value = false;
   view.value = 'thread';
   threadLoading.value = true;
+  let res;
   try {
-    await refreshThread();
+    res = await refreshThread();
   } finally {
     threadLoading.value = false;
   }
+  // 認証切れでセッションが消えた場合は handleAuthFailure 側の表示
+  // (サインイン画面) に任せ、URLも触らない。
+  if (!session.value) return;
+  if (res && res.notFound) {
+    stopPolling();
+    currentId.value = null;
+    currentStatus.value = '';
+    currentTitle.value = '';
+    messages.value = [];
+    view.value = 'list';
+    listError.value = '指定された会話が見つかりませんでした。';
+    replaceListUrl();
+    loadList();
+    return;
+  }
+  if (push) pushThreadUrl(id);
   if (messages.value.length > 0) await scrollToLatest();
 }
 
-function backToList() {
+// 画面の「← 一覧」は履歴に積む (push)。削除後など内部都合の遷移は
+// 呼び出し側の指定に従う。
+function backToList({ push = true } = {}) {
   stopPolling();
   view.value = 'list';
+  if (push) pushListUrl();
   loadList();
 }
 
+// ブラウザの戻る/進む: URLに合わせて表示を切り替える。URL自体は
+// ブラウザが書き換え済みなので、ここでは push しない。
+async function onPopState() {
+  if (!session.value) return;
+  const id = routeThreadId();
+  if (id) {
+    if (view.value === 'thread' && currentId.value === id) return;
+    await openThread(id, { push: false });
+  } else {
+    if (view.value === 'list') return;
+    stopPolling();
+    currentId.value = null;
+    currentStatus.value = '';
+    currentTitle.value = '';
+    messages.value = [];
+    view.value = 'list';
+    loadList();
+  }
+}
+
+// 戻り値で成否を返す (openThread が「会話が無い」を判別するため)。
+// それ以外の呼び出し元 (送信後・ポーリング) は従来どおり無視する。
 async function refreshThread() {
-  if (!session.value || !currentId.value) return;
+  if (!session.value || !currentId.value) return { ok: false, notFound: false };
   try {
     const data = await result(session.value.token, currentId.value);
     currentStatus.value = data.status;
@@ -168,8 +251,11 @@ async function refreshThread() {
     messages.value = mergeMessages(messages.value, data.messages);
     if (shouldPoll(data.status)) startPolling();
     else stopPolling();
+    return { ok: true, notFound: false };
   } catch (e) {
-    if (!handleAuthFailure(e)) threadError.value = '会話を取得できませんでした。';
+    if (handleAuthFailure(e)) return { ok: false, notFound: false };
+    threadError.value = '会話を取得できませんでした。';
+    return { ok: false, notFound: e && e.message === 'request not found' };
   }
 }
 
@@ -195,6 +281,8 @@ async function send() {
       const data = await ask(session.value.token, text);
       currentId.value = data.id;
       currentStatus.value = data.status;
+      // 新しい会話はIDが発行された時点で、その会話のURLにする。
+      pushThreadUrl(data.id);
     } else {
       const data = await answer(session.value.token, currentId.value, text);
       currentStatus.value = data.status;
@@ -272,21 +360,30 @@ function deleteCurrent() {
 }
 
 onMounted(async () => {
+  window.addEventListener('popstate', onPopState);
+  const initialId = routeThreadId();
   const saved = loadSession();
   if (saved) {
     session.value = saved;
     await loadList();
+    // 深リンク: URLの会話を直接開く (最下部スクロール込み)。
+    if (initialId && session.value) await openThread(initialId, { push: false });
   } else {
+    // 未ログインならIDを保持し、ログイン完了後に開く。
+    pendingThreadId = initialId;
     renderSigninButton();
   }
 });
 
-onBeforeUnmount(stopPolling);
+onBeforeUnmount(() => {
+  window.removeEventListener('popstate', onPopState);
+  stopPolling();
+});
 </script>
 
 <template>
   <nav class="site-nav">
-    <a class="brand" href="/muse/">
+    <a class="brand" :href="appBase">
       <span class="brand-mark">M</span>
       <span class="brand-text">
         <span class="brand-name">Muse</span>

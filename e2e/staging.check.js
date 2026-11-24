@@ -336,3 +336,83 @@ test("muse staging opening a thread scrolls to the latest message", async ({ pag
   expect(lastBox.y).toBeGreaterThanOrEqual(0);
   expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(844);
 });
+
+// Per-thread URLs: opening a conversation from the list rewrites
+// the URL to /muse/staging/<id>, a reload (or a direct visit to
+// that URL) reopens the same conversation, and the browser back
+// button returns to the list URL. Same mocked-session setup as
+// above; all data is dummy data.
+test("muse staging per-thread URLs: open, reload, back and deep link", async ({ page }) => {
+  const requests = [
+    {
+      id: "route-1", status: "replied", round: 1,
+      created_at: "2026-11-25T01:00:00.000Z", last_activity_at: "2026-11-25T01:05:00.000Z",
+      title: "ルート確認用の会話1", preview: "一件目のプレビュー",
+    },
+    {
+      id: "route-2", status: "replied", round: 1,
+      created_at: "2026-11-25T02:00:00.000Z", last_activity_at: "2026-11-25T02:05:00.000Z",
+      title: "ルート確認用の会話2", preview: "二件目のプレビュー",
+    },
+  ];
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "muse:session:v1:staging",
+      JSON.stringify({ token: "e2e-dummy-session", role: "owner", expiresAt: "2999-01-01T00:00:00.000Z" }),
+    );
+  });
+  await page.route(/script\.google\.com\/macros\//, async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    let action = url.searchParams.get("action");
+    if (req.method() === "POST") {
+      try {
+        action = JSON.parse(req.postData() || "{}").action;
+      } catch {
+        // keep the GET-derived action
+      }
+    }
+    const json = (obj) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(obj) });
+    if (action === "list") return json({ ok: true, requests });
+    if (action === "result") {
+      const r = requests.find((x) => x.id === url.searchParams.get("id"));
+      if (!r) return json({ ok: false, error: "request not found" });
+      return json({
+        ok: true, id: r.id, status: r.status, round: r.round, title: r.title,
+        created_at: r.created_at, last_activity_at: r.last_activity_at,
+        messages: [
+          { round: 1, direction: "out", text: `${r.id} への依頼です`, at: r.created_at },
+          { round: 1, direction: "in", text: `${r.id} への返信です`, at: r.last_activity_at },
+        ],
+      });
+    }
+    return json({ ok: false, error: "unknown action" });
+  });
+
+  // Open from the list: the URL becomes the thread URL.
+  const resp = await page.goto("/muse/staging/");
+  expect(resp.status()).toBe(200);
+  await page
+    .locator(".request-item", { hasText: "ルート確認用の会話1" })
+    .locator(".request-row")
+    .click();
+  await expect(page.getByText("route-1 への返信です")).toBeVisible();
+  await expect(page).toHaveURL(/\/muse\/staging\/route-1$/);
+
+  // Reload: the same conversation reopens directly from the URL.
+  await page.reload();
+  await expect(page.getByText("route-1 への返信です")).toBeVisible();
+  await expect(page.locator(".thread-title")).toHaveText("ルート確認用の会話1");
+  await expect(page).toHaveURL(/\/muse\/staging\/route-1$/);
+
+  // Browser back: back to the list and the list URL.
+  await page.goBack();
+  await expect(page.locator(".req-title", { hasText: "ルート確認用の会話2" })).toBeVisible();
+  await expect(page).toHaveURL(/\/muse\/staging\/$/);
+
+  // Deep link: visiting a thread URL directly opens that thread.
+  await page.goto("/muse/staging/route-2");
+  await expect(page.getByText("route-2 への返信です")).toBeVisible();
+  await expect(page.locator(".thread-title")).toHaveText("ルート確認用の会話2");
+});
