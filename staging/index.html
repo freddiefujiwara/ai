@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://script.google.com">
+    <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@700;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icon-180.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Muse">
+    <meta name="theme-color" content="#b23a1f">
+    <title>Muse｜藤原史和</title>
+    <meta name="description" content="メール経由でClaudeと話すための専用窓口。Googleアカウント（本人のみ）でログインして使います。" />
+    <meta property="og:title" content="Muse｜藤原史和" />
+    <meta property="og:description" content="メール経由でClaudeと話すための専用窓口。" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://freddiefujiwara.com/muse/" />
+    <script>
+      // spa-github-pages 方式の復元: 404.html が深リンクを
+      // "/muse/?/<パス>" の形へ畳んで寄せてくるので、アプリが
+      // 起動する前に元のパスへ戻す (履歴は replaceState で置き換え、
+      // 余分な履歴を残さない)。ハッシュはそのまま残す。
+      (function () {
+        var l = window.location;
+        if (l.search[1] === '/') {
+          var decoded = l.search
+            .slice(1)
+            .split('&')
+            .map(function (s) {
+              return s.replace(/~and~/g, '&');
+            })
+            .join('?');
+          window.history.replaceState(
+            null,
+            null,
+            l.pathname.slice(0, -1) + decoded + l.hash
+          );
+        }
+      })();
+    </script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script type="module" crossorigin src="/muse/staging/assets/index-DQ9zutix.js"></script>
+    <link rel="stylesheet" crossorigin href="/muse/staging/assets/index-EJxEvxW9.css">
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
