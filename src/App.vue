@@ -1,10 +1,11 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import { GOOGLE_CLIENT_ID } from './config.js';
 import { loadSession, saveSession, clearSession } from './lib/session.js';
 import { exchangeSession, ask, answer, result, listRequests, rename, deleteRequest } from './lib/api.js';
 import { normalizeRequests, mergeMessages, threadTitle, statusLabel, shouldPoll, formatDateTime, displayTitle } from './lib/chat.js';
 import { threadIdFromPath, threadPath, listPath } from './lib/route.js';
+import { loadSeen, saveSeen, seedSeen, markSeen, pruneSeen, unreadIds } from './lib/seen.js';
 
 // スレッド毎URLの土台。本番は "/muse/"、ステージングは
 // "/muse/staging/" (Vite の BASE_URL)。深リンクの復元は
@@ -36,6 +37,19 @@ const editingTitle = ref(false);
 const titleDraft = ref('');
 const savingTitle = ref(false);
 let pollTimer = null;
+// 一覧の背景更新 (reader と同じ流儀): 一覧を表示している間は
+// 60秒間隔で裏で取り直し、しばらく裏に回って戻ってきたときも
+// (60秒を超えていたら) その場で取り直す。どちらも画面を
+// ブロックせず、実行中にもう一度呼ばれたら同じ Promise を返す。
+const LIST_REFRESH_MS = 60_000;
+let listPollTimer = null;
+let listRefreshInFlight = null;
+let listHiddenAt = 0;
+// 「見た返信」の記録 (端末ローカルのみ)。null は未読み込み、
+// 読み込み済みでキー自体が無かった場合は初回として一覧で初期化する。
+const seenMap = ref(null);
+const unreadIdSet = computed(() => new Set(unreadIds(requests.value, seenMap.value || {})));
+const unreadCount = computed(() => unreadIdSet.value.size);
 // 起動時のURLに会話IDがあり、まだログインしていない場合に保持し、
 // ログイン完了後にその会話を開くための置き場。
 let pendingThreadId = null;
@@ -72,6 +86,7 @@ function adoptSession(data) {
   const s = { token: data.sessionToken, role: data.role || 'owner', expiresAt: data.expiresAt || null };
   saveSession(s);
   session.value = s;
+  seenMap.value = loadSeen();
 }
 
 async function onCredential(response) {
@@ -143,17 +158,80 @@ function signOut() {
   nextTick(renderSigninButton);
 }
 
-async function loadList() {
+// 取得した一覧を画面と「見た返信」の記録へ反映する。初回だけは、
+// その時点で既に返信が付いている会話を見た扱いにして初期化する。
+function applyList(data) {
+  requests.value = normalizeRequests(data.requests);
+  if (seenMap.value === null) {
+    seenMap.value = seedSeen(requests.value);
+    saveSeen(seenMap.value);
+  } else {
+    seenMap.value = pruneSeen(seenMap.value, requests.value);
+    saveSeen(seenMap.value);
+  }
+}
+
+// background=true は定期取得・復帰時の背景更新用: 読み込み表示や
+// エラー表示で画面をちらつかせず、失敗したら前回の一覧を残す
+// (認証切れだけは従来どおりサインイン画面へ倒す)。
+async function loadList({ background = false } = {}) {
   if (!session.value) return;
-  listLoading.value = true;
-  listError.value = '';
+  if (!background) {
+    listLoading.value = true;
+    listError.value = '';
+  }
   try {
     const data = await listRequests(session.value.token);
-    requests.value = normalizeRequests(data.requests);
+    applyList(data);
   } catch (e) {
-    if (!handleAuthFailure(e)) listError.value = '会話一覧を取得できませんでした。';
+    if (!handleAuthFailure(e) && !background) listError.value = '会話一覧を取得できませんでした。';
   } finally {
-    listLoading.value = false;
+    if (!background) listLoading.value = false;
+  }
+}
+
+// 背景更新の多重実行防止 (reader の refreshInBackground と同じ形)。
+function refreshListInBackground() {
+  if (listRefreshInFlight) return listRefreshInFlight;
+  const run = loadList({ background: true });
+  listRefreshInFlight = run;
+  const clear = () => { if (listRefreshInFlight === run) listRefreshInFlight = null; };
+  run.then(clear, clear);
+  return run;
+}
+
+function startListPolling() {
+  if (listPollTimer) return;
+  listPollTimer = setInterval(() => {
+    if (document.visibilityState !== 'hidden') refreshListInBackground();
+  }, LIST_REFRESH_MS);
+}
+
+function stopListPolling() {
+  if (listPollTimer) {
+    clearInterval(listPollTimer);
+    listPollTimer = null;
+  }
+}
+
+// 一覧を表示している間だけ定期取得する (詳細側のポーリングとは別系統)。
+function syncListPolling() {
+  if (session.value && view.value === 'list') startListPolling();
+  else stopListPolling();
+}
+
+watch([session, view], syncListPolling);
+
+// しばらく裏に回って戻ってきたら、その場で背景更新する (reader と
+// 同じ流儀)。裏にいる間はタイマー側も取得しない。
+function onVisibilityChange() {
+  if (document.visibilityState === 'hidden') {
+    listHiddenAt = Date.now();
+    return;
+  }
+  if (session.value && view.value === 'list' && listHiddenAt && Date.now() - listHiddenAt > LIST_REFRESH_MS) {
+    listHiddenAt = 0;
+    refreshListInBackground();
   }
 }
 
@@ -250,6 +328,12 @@ async function refreshThread() {
     currentStatus.value = data.status;
     if (typeof data.title === 'string') currentTitle.value = data.title;
     messages.value = mergeMessages(messages.value, data.messages);
+    // 開いている会話の返信は見た扱いにする (詳細側のポーリングで
+    // 届いた返信も、一覧へ戻ったときに未読にならないように)。
+    if (data.status === 'replied') {
+      seenMap.value = markSeen(seenMap.value || {}, currentId.value, data.round);
+      saveSeen(seenMap.value);
+    }
     if (shouldPoll(data.status)) startPolling();
     else stopPolling();
     return { ok: true, notFound: false };
@@ -332,6 +416,12 @@ async function doDelete(id, label) {
   listError.value = '';
   try {
     await deleteRequest(session.value.token, id);
+    if (seenMap.value && seenMap.value[id]) {
+      const next = { ...seenMap.value };
+      delete next[id];
+      seenMap.value = next;
+      saveSeen(seenMap.value);
+    }
     if (view.value === 'thread' && id === currentId.value) {
       stopPolling();
       currentId.value = null;
@@ -362,10 +452,12 @@ function deleteCurrent() {
 
 onMounted(async () => {
   window.addEventListener('popstate', onPopState);
+  document.addEventListener('visibilitychange', onVisibilityChange);
   const initialId = routeThreadId();
   const saved = loadSession();
   if (saved) {
     session.value = saved;
+    seenMap.value = loadSeen();
     await loadList();
     // 深リンク: URLの会話を直接開く (最下部スクロール込み)。
     if (initialId && session.value) await openThread(initialId, { push: false });
@@ -378,7 +470,9 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('popstate', onPopState);
+  document.removeEventListener('visibilitychange', onVisibilityChange);
   stopPolling();
+  stopListPolling();
 });
 </script>
 
@@ -412,7 +506,8 @@ onBeforeUnmount(() => {
     <template v-else-if="view === 'list'">
       <div class="chat-actions">
         <button class="primary-btn" type="button" @click="openNew">新しい会話</button>
-        <button class="ghost-btn" type="button" :disabled="listLoading" @click="loadList">更新</button>
+        <button class="ghost-btn" type="button" :disabled="listLoading" @click="loadList()">更新</button>
+        <span v-if="unreadCount > 0" class="unread-pill">未読 {{ unreadCount }}</span>
       </div>
       <p v-if="listError" class="error">{{ listError }}</p>
       <p v-if="listLoading" class="meta"><span class="spinner"></span>読み込んでいます…</p>
@@ -420,6 +515,7 @@ onBeforeUnmount(() => {
       <ul v-else class="request-list">
         <li v-for="r in requests" :key="r.id" class="request-item">
           <button class="request-row" type="button" @click="openThread(r.id)">
+            <span v-if="unreadIdSet.has(r.id)" class="unread-dot" aria-label="未読の返信"></span>
             <span class="req-main">
               <span class="req-title">{{ displayTitle(r) }}</span>
               <span class="req-sub">
