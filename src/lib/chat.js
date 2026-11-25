@@ -39,16 +39,33 @@ function messageKey(m) {
   return `${m.round}|${m.direction}|${m.at}`;
 }
 
+// 返信の添付画像 (muse-gas の result が付ける attachments) は
+// {name, url} の文字列ペアだけを通す。使える添付が無い場合は
+// 空配列を返し、呼び出し側でキー自体を持たせない (添付の無い
+// 旧データや送信側メッセージとの後方互換のため)。
+export function normalizeAttachments(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const a of list) {
+    if (!a || typeof a.url !== 'string' || !a.url) continue;
+    out.push({ name: typeof a.name === 'string' ? a.name : '', url: a.url });
+  }
+  return out;
+}
+
 export function mergeMessages(existing, incoming) {
   const byKey = new Map();
   for (const m of [...(existing || []), ...(incoming || [])]) {
     if (!m || typeof m.text !== 'string') continue;
-    byKey.set(messageKey(m), {
+    const entry = {
       round: Number(m.round || 1),
       direction: m.direction === 'in' ? 'in' : 'out',
       text: m.text,
       at: m.at || '',
-    });
+    };
+    const attachments = normalizeAttachments(m.attachments);
+    if (attachments.length) entry.attachments = attachments;
+    byKey.set(messageKey(m), entry);
   }
   return [...byKey.values()].sort((a, b) => {
     if (a.round !== b.round) return a.round - b.round;

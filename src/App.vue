@@ -33,6 +33,8 @@ const draft = ref('');
 const sending = ref(false);
 const threadError = ref('');
 const threadLoading = ref(false);
+const threadRefreshing = ref(false);
+let threadRefreshInFlight = null;
 const deleting = ref(false);
 const editingTitle = ref(false);
 const titleDraft = ref('');
@@ -207,11 +209,33 @@ function refreshListInBackground() {
   return run;
 }
 
+// 詳細の背景更新の多重実行防止 (一覧側と同じ形)。詳細ポーリングと
+// 同じ取得処理を即時実行するだけで、読み込み表示は出さない。
+function refreshThreadInBackground() {
+  if (threadRefreshInFlight) return threadRefreshInFlight;
+  threadRefreshing.value = true;
+  const run = refreshThread();
+  threadRefreshInFlight = run;
+  const clear = () => {
+    if (threadRefreshInFlight === run) {
+      threadRefreshInFlight = null;
+      threadRefreshing.value = false;
+    }
+  };
+  run.then(clear, clear);
+  return run;
+}
+
+// ヘッダーの更新ボタンの表示状態は、表示中の画面側の背景更新に合わせる。
+const refreshing = computed(() => (view.value === 'list' ? listRefreshing.value : threadRefreshing.value));
+
 // ヘッダーの手動更新も、定期取得と同じ背景更新を使う (reader の
-// onManualRefresh と同じ形)。読み込み表示で一覧をブロックしない。
+// onManualRefresh と同じ形)。一覧では一覧を、詳細では開いている
+// 会話を取り直す。どちらも読み込み表示で画面をブロックしない。
 async function onManualRefresh() {
-  if (!session.value || view.value !== 'list') return;
-  await refreshListInBackground();
+  if (!session.value) return;
+  if (view.value === 'list') await refreshListInBackground();
+  else if (currentId.value) await refreshThreadInBackground();
 }
 
 function startListPolling() {
@@ -464,6 +488,15 @@ function deleteCurrent() {
   doDelete(currentId.value, title.value);
 }
 
+// 読み込めなかった添付画像はリンクごと隠す。壊れた画像アイコンを
+// 残さず、本文の表示はそのまま保つ。
+function onAttachmentError(e) {
+  const img = e.target;
+  const link = img && typeof img.closest === 'function' ? img.closest('a') : null;
+  if (link) link.style.display = 'none';
+  else if (img) img.style.display = 'none';
+}
+
 onMounted(async () => {
   window.addEventListener('popstate', onPopState);
   document.addEventListener('visibilitychange', onVisibilityChange);
@@ -503,12 +536,12 @@ onBeforeUnmount(() => {
     <span v-if="session" class="session-note">
       <span v-if="view === 'list' && unreadCount > 0" class="unread-pill">未読 {{ unreadCount }}</span>
       <button
-        v-if="view === 'list'"
+        v-if="view === 'list' || currentId"
         class="ghost nav-refresh"
         type="button"
-        :disabled="listRefreshing"
+        :disabled="refreshing"
         @click="onManualRefresh"
-      >{{ listRefreshing ? '更新中…' : '更新' }}</button>
+      >{{ refreshing ? '更新中…' : '更新' }}</button>
       <button class="ghost-btn" type="button" @click="signOut">サインアウト</button>
     </span>
   </nav>
@@ -579,6 +612,22 @@ onBeforeUnmount(() => {
       <div v-else class="messages">
         <div v-for="(m, i) in messages" :key="i" class="bubble" :class="m.direction">
           {{ m.text }}<span class="bubble-meta">{{ formatDateTime(m.at) }}</span>
+          <span v-if="m.attachments && m.attachments.length" class="bubble-attachments">
+            <a
+              v-for="(a, j) in m.attachments"
+              :key="j"
+              class="attachment-link"
+              :href="a.url"
+              target="_blank"
+              rel="noopener"
+            ><img
+              class="attachment-img"
+              :src="a.url"
+              :alt="a.name || '添付画像'"
+              loading="lazy"
+              @error="onAttachmentError"
+            /></a>
+          </span>
         </div>
       </div>
       <p v-if="isPending && !threadLoading" class="pending-note"><span class="spinner"></span>返信を待っています（目安1〜2分、最大10分）</p>
