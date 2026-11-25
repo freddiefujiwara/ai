@@ -498,6 +498,129 @@ test("muse staging list auto-refresh flags unread replies until opened", async (
   await expect(page.locator(".unread-pill")).toHaveCount(0);
 });
 
+// Thread view: the header refresh button also appears while a
+// conversation is open and re-fetches that conversation in the
+// background (same gated-response technique as above, no blocking
+// loading UI). Reply attachments (attachments: [{name, url}] on
+// result messages) render as thumbnails under the message text,
+// each linked to the original url. The dummy image url is
+// intercepted and served a 1x1 PNG so the thumbnail really loads.
+// All data below is dummy data.
+test("muse staging thread header refresh and reply attachments", async ({ page }) => {
+  const IMG_URL = "https://example.com/e2e-dummy.png";
+  const PNG_1PX = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const baseMessages = [
+    { round: 1, direction: "out", text: "添付確認の依頼です", at: "2026-11-25T01:00:00.000Z" },
+    { round: 1, direction: "in", text: "返信です", at: "2026-11-25T01:05:00.000Z" },
+  ];
+  let resultCalls = 0;
+  let releaseSecond;
+  const secondGate = new Promise((resolve) => { releaseSecond = resolve; });
+  const gateTimer = setTimeout(() => releaseSecond(), 20000);
+
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "muse:session:v1:staging",
+      JSON.stringify({ token: "e2e-dummy-session", role: "owner", expiresAt: "2999-01-01T00:00:00.000Z" }),
+    );
+    if (localStorage.getItem("muse:seen:v1:staging") === null) {
+      localStorage.setItem("muse:seen:v1:staging", "{}");
+    }
+  });
+  await page.route("https://example.com/**", async (route) => {
+    await route.fulfill({ status: 200, contentType: "image/png", body: PNG_1PX });
+  });
+  await page.route(/script\.google\.com\/macros\//, async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    let action = url.searchParams.get("action");
+    if (req.method() === "POST") {
+      try {
+        action = JSON.parse(req.postData() || "{}").action;
+      } catch {
+        // keep the GET-derived action
+      }
+    }
+    const json = (obj) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(obj) });
+    if (action === "list") {
+      return json({
+        ok: true,
+        requests: [
+          {
+            id: "attach-1", status: "replied", round: 1,
+            created_at: "2026-11-25T01:00:00.000Z", last_activity_at: "2026-11-25T01:05:00.000Z",
+            title: "", preview: "添付確認の依頼です",
+          },
+        ],
+      });
+    }
+    if (action === "result") {
+      resultCalls += 1;
+      if (resultCalls > 1) await secondGate;
+      const messages = resultCalls > 1
+        ? [
+            baseMessages[0],
+            {
+              ...baseMessages[1],
+              attachments: [{ name: "e2e-dummy.png", url: IMG_URL }],
+            },
+          ]
+        : baseMessages;
+      return json({
+        ok: true, id: "attach-1", status: "replied", round: 1, title: "",
+        created_at: "2026-11-25T01:00:00.000Z", last_activity_at: "2026-11-25T01:05:00.000Z",
+        messages,
+      });
+    }
+    return json({ ok: false, error: "unknown action" });
+  });
+
+  const resp = await page.goto("/muse/staging/");
+  expect(resp.status()).toBe(200);
+  await page
+    .locator(".request-item", { hasText: "添付確認の依頼です" })
+    .locator(".request-row")
+    .click();
+  await expect(page.getByText("返信です")).toBeVisible();
+  expect(resultCalls).toBe(1);
+  // No attachments in the first payload: no thumbnails yet.
+  await expect(page.locator(".attachment-img")).toHaveCount(0);
+
+  // The header refresh button is available in the thread view too.
+  const refresh = page.locator(".site-nav .session-note .nav-refresh");
+  await expect(refresh).toBeVisible();
+  await expect(refresh).toHaveText("更新");
+
+  // Clicking re-fetches the open conversation in the background:
+  // busy label + disabled while in flight, thread stays on screen.
+  await refresh.click();
+  await expect(refresh).toBeDisabled();
+  await expect(refresh).toHaveText("更新中…");
+  await expect(page.locator(".thread-loading")).toHaveCount(0);
+  await expect(page.getByText("返信です")).toBeVisible();
+  releaseSecond();
+  clearTimeout(gateTimer);
+
+  await expect(refresh).toBeEnabled();
+  await expect(refresh).toHaveText("更新");
+  expect(resultCalls).toBe(2);
+
+  // The refreshed payload carries the attachment: a thumbnail
+  // under the reply text, wrapped in a link to the original url.
+  const img = page.locator(".bubble.in .attachment-img");
+  await expect(img).toHaveCount(1);
+  await expect(img).toBeVisible();
+  await expect(img).toHaveAttribute("src", IMG_URL);
+  const link = page.locator(".bubble.in .attachment-link");
+  await expect(link).toHaveAttribute("href", IMG_URL);
+  // The outgoing bubble has no attachments.
+  await expect(page.locator(".bubble.out .attachment-img")).toHaveCount(0);
+});
+
 // Header layout follows reader: the manual refresh button sits in
 // the global header's session-note area (class "ghost nav-refresh",
 // label switches to "更新中…" while running), the unread pill sits
