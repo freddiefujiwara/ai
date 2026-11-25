@@ -416,3 +416,84 @@ test("muse staging per-thread URLs: open, reload, back and deep link", async ({ 
   await expect(page.getByText("route-2 への返信です")).toBeVisible();
   await expect(page.locator(".thread-title")).toHaveText("ルート確認用の会話2");
 });
+
+// List auto-refresh (reader-style background polling): while the
+// list is on screen it re-fetches every 60s in the background, and a
+// reply that lands in the meantime is flagged with an unread dot on
+// the row and a "未読 N" pill, until the thread is opened. The page
+// clock is faked so the 60s interval fires deterministically; all
+// data is dummy data and every /exec call is mocked as above.
+test("muse staging list auto-refresh flags unread replies until opened", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-11-25T03:00:00.000Z") });
+  const state = {
+    requests: [
+      {
+        id: "poll-1", status: "pending", round: 1,
+        created_at: "2026-11-25T01:00:00.000Z", last_activity_at: "2026-11-25T01:00:00.000Z",
+        title: "", preview: "自動更新確認用の会話",
+      },
+    ],
+  };
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "muse:session:v1:staging",
+      JSON.stringify({ token: "e2e-dummy-session", role: "owner", expiresAt: "2999-01-01T00:00:00.000Z" }),
+    );
+    // Seen storage initialized (empty): a new reply counts as unread.
+    if (localStorage.getItem("muse:seen:v1:staging") === null) {
+      localStorage.setItem("muse:seen:v1:staging", "{}");
+    }
+  });
+  await page.route(/script\.google\.com\/macros\//, async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    let action = url.searchParams.get("action");
+    if (req.method() === "POST") {
+      try {
+        action = JSON.parse(req.postData() || "{}").action;
+      } catch {
+        // keep the GET-derived action
+      }
+    }
+    const json = (obj) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(obj) });
+    if (action === "list") return json({ ok: true, requests: state.requests });
+    if (action === "result") {
+      const r = state.requests.find((x) => x.id === url.searchParams.get("id"));
+      if (!r) return json({ ok: false, error: "request not found" });
+      return json({
+        ok: true, id: r.id, status: r.status, round: r.round, title: r.title,
+        created_at: r.created_at, last_activity_at: r.last_activity_at,
+        messages: [
+          { round: 1, direction: "out", text: "自動更新の確認用リクエストです", at: "2026-11-25T01:00:00.000Z" },
+          { round: 1, direction: "in", text: "自動更新で届いた返信です", at: "2026-11-25T01:05:00.000Z" },
+        ],
+      });
+    }
+    return json({ ok: false, error: "unknown action" });
+  });
+
+  const resp = await page.goto("/muse/staging/");
+  expect(resp.status()).toBe(200);
+  await expect(page.locator(".req-title", { hasText: "自動更新確認用の会話" })).toBeVisible();
+  await expect(page.locator(".unread-dot")).toHaveCount(0);
+  await expect(page.locator(".unread-pill")).toHaveCount(0);
+
+  // The reply lands on the server; one polling interval later the
+  // list has picked it up on its own and flags it unread.
+  state.requests = [
+    { ...state.requests[0], status: "replied", last_activity_at: "2026-11-25T01:05:00.000Z" },
+  ];
+  await page.clock.runFor(61_000);
+  await expect(page.locator(".unread-dot")).toBeVisible();
+  await expect(page.locator(".unread-pill")).toContainText("未読 1");
+
+  // Opening the thread reads the reply; back on the list the flag
+  // is gone.
+  await page.locator(".request-item").first().locator(".request-row").click();
+  await expect(page.getByText("自動更新で届いた返信です")).toBeVisible();
+  await page.goBack();
+  await expect(page.locator(".req-title", { hasText: "自動更新確認用の会話" })).toBeVisible();
+  await expect(page.locator(".unread-dot")).toHaveCount(0);
+  await expect(page.locator(".unread-pill")).toHaveCount(0);
+});

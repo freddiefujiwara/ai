@@ -631,6 +631,31 @@ button.ghost.active {
   margin-left: 0;
 }
 
+/* 未読の見せ方は reader と同じ流儀: 行にドット、一覧の頭に
+   「未読 N」のピル。 */
+.unread-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+  background: var(--primary);
+  flex: none;
+}
+
+.unread-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--surface-elevated);
+  color: var(--link-active);
+  font: inherit;
+  font-weight: 900;
+  font-size: 13px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
 .danger-btn {
   background: var(--surface);
   color: var(--error);
