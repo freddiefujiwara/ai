@@ -497,3 +497,86 @@ test("muse staging list auto-refresh flags unread replies until opened", async (
   await expect(page.locator(".unread-dot")).toHaveCount(0);
   await expect(page.locator(".unread-pill")).toHaveCount(0);
 });
+
+// Header layout follows reader: the manual refresh button sits in
+// the global header's session-note area (class "ghost nav-refresh",
+// label switches to "更新中…" while running), the unread pill sits
+// in the same header area before it, and neither lives in the list
+// action row any more. The refresh runs the same background update
+// as the polling, so the list stays on screen while it is in flight
+// (the second list response is gated to observe that state).
+test("muse staging header refresh matches reader layout and background behavior", async ({ page }) => {
+  const state = {
+    requests: [
+      {
+        id: "refresh-1", status: "pending", round: 1,
+        created_at: "2026-11-25T01:00:00.000Z", last_activity_at: "2026-11-25T01:00:00.000Z",
+        title: "", preview: "手動更新確認用の会話",
+      },
+    ],
+  };
+  let listCalls = 0;
+  let releaseRefresh;
+  const refreshGate = new Promise((resolve) => { releaseRefresh = resolve; });
+  const gateTimer = setTimeout(() => releaseRefresh(), 20000);
+
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "muse:session:v1:staging",
+      JSON.stringify({ token: "e2e-dummy-session", role: "owner", expiresAt: "2999-01-01T00:00:00.000Z" }),
+    );
+    if (localStorage.getItem("muse:seen:v1:staging") === null) {
+      localStorage.setItem("muse:seen:v1:staging", "{}");
+    }
+  });
+  await page.route(/script\.google\.com\/macros\//, async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    let action = url.searchParams.get("action");
+    if (req.method() === "POST") {
+      try {
+        action = JSON.parse(req.postData() || "{}").action;
+      } catch {
+        // keep the GET-derived action
+      }
+    }
+    const json = (obj) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(obj) });
+    if (action === "list") {
+      listCalls += 1;
+      if (listCalls > 1) await refreshGate;
+      return json({ ok: true, requests: state.requests });
+    }
+    return json({ ok: false, error: "unknown action" });
+  });
+
+  const resp = await page.goto("/muse/staging/");
+  expect(resp.status()).toBe(200);
+  await expect(page.locator(".req-title", { hasText: "手動更新確認用の会話" })).toBeVisible();
+
+  // Position: inside the header's session-note, not the list row.
+  const refresh = page.locator(".site-nav .session-note .nav-refresh");
+  await expect(refresh).toBeVisible();
+  await expect(refresh).toHaveText("更新");
+  await expect(page.locator(".chat-actions .nav-refresh")).toHaveCount(0);
+  await expect(page.locator(".chat-actions button")).toHaveCount(1);
+
+  // The reply lands; a manual refresh picks it up in the background.
+  state.requests = [
+    { ...state.requests[0], status: "replied", last_activity_at: "2026-11-25T01:05:00.000Z" },
+  ];
+  await refresh.click();
+  await expect(refresh).toBeDisabled();
+  await expect(refresh).toHaveText("更新中…");
+  // The current list is not replaced by a blocking loading row.
+  await expect(page.locator(".req-title", { hasText: "手動更新確認用の会話" })).toBeVisible();
+  releaseRefresh();
+  clearTimeout(gateTimer);
+
+  await expect(refresh).toBeEnabled();
+  await expect(refresh).toHaveText("更新");
+  await expect(page.locator(".unread-dot")).toBeVisible();
+  await expect(page.locator(".site-nav .session-note .unread-pill")).toContainText("未読 1");
+  await expect(page.locator(".chat-actions .unread-pill")).toHaveCount(0);
+  expect(listCalls).toBe(2);
+});

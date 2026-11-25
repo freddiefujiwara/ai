@@ -22,6 +22,7 @@ const signinEl = ref(null);
 const view = ref('list'); // 'list' | 'thread'
 const requests = ref([]);
 const listLoading = ref(false);
+const listRefreshing = ref(false);
 const listError = ref('');
 
 const currentId = ref(null);
@@ -193,11 +194,24 @@ async function loadList({ background = false } = {}) {
 // 背景更新の多重実行防止 (reader の refreshInBackground と同じ形)。
 function refreshListInBackground() {
   if (listRefreshInFlight) return listRefreshInFlight;
+  listRefreshing.value = true;
   const run = loadList({ background: true });
   listRefreshInFlight = run;
-  const clear = () => { if (listRefreshInFlight === run) listRefreshInFlight = null; };
+  const clear = () => {
+    if (listRefreshInFlight === run) {
+      listRefreshInFlight = null;
+      listRefreshing.value = false;
+    }
+  };
   run.then(clear, clear);
   return run;
+}
+
+// ヘッダーの手動更新も、定期取得と同じ背景更新を使う (reader の
+// onManualRefresh と同じ形)。読み込み表示で一覧をブロックしない。
+async function onManualRefresh() {
+  if (!session.value || view.value !== 'list') return;
+  await refreshListInBackground();
 }
 
 function startListPolling() {
@@ -487,6 +501,14 @@ onBeforeUnmount(() => {
     </a>
     <span></span>
     <span v-if="session" class="session-note">
+      <span v-if="view === 'list' && unreadCount > 0" class="unread-pill">未読 {{ unreadCount }}</span>
+      <button
+        v-if="view === 'list'"
+        class="ghost nav-refresh"
+        type="button"
+        :disabled="listRefreshing"
+        @click="onManualRefresh"
+      >{{ listRefreshing ? '更新中…' : '更新' }}</button>
       <button class="ghost-btn" type="button" @click="signOut">サインアウト</button>
     </span>
   </nav>
@@ -506,8 +528,6 @@ onBeforeUnmount(() => {
     <template v-else-if="view === 'list'">
       <div class="chat-actions">
         <button class="primary-btn" type="button" @click="openNew">新しい会話</button>
-        <button class="ghost-btn" type="button" :disabled="listLoading" @click="loadList()">更新</button>
-        <span v-if="unreadCount > 0" class="unread-pill">未読 {{ unreadCount }}</span>
       </div>
       <p v-if="listError" class="error">{{ listError }}</p>
       <p v-if="listLoading" class="meta"><span class="spinner"></span>読み込んでいます…</p>
