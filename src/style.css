@@ -415,6 +415,14 @@ button.ghost.active {
   margin: 4px 0 16px;
 }
 
+/* ヘッダーの「更新」ボタンは reader と同じ控えめな寸法にする。 */
+.nav-refresh {
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  min-height: 38px;
+  white-space: nowrap;
+}
+
 .primary-btn {
   background: var(--primary);
   color: #fff;
@@ -631,7 +639,7 @@ button.ghost.active {
   margin-left: 0;
 }
 
-/* 未読の見せ方は reader と同じ流儀: 行にドット、一覧の頭に
+/* 未読の見せ方は reader と同じ流儀: 行にドット、ヘッダーに
    「未読 N」のピル。 */
 .unread-dot {
   width: 9px;

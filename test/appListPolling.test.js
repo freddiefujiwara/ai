@@ -101,6 +101,55 @@ describe('list background polling and unread flags', () => {
     expect(el.querySelector('.unread-pill')).toBeNull();
   });
 
+  it('places the manual refresh in the header and runs it as a non-blocking background refresh', async () => {
+    let calls = 0;
+    let releaseRefresh;
+    listRequests.mockImplementation(() => {
+      calls += 1;
+      if (calls === 1) {
+        return Promise.resolve({ ok: true, requests: [{ ...THREAD }] });
+      }
+      return new Promise((resolve) => {
+        releaseRefresh = () => resolve({
+          ok: true,
+          requests: [{ ...THREAD, status: 'replied', last_activity_at: '2026-11-25T01:05:00.000Z' }],
+        });
+      });
+    });
+    result.mockImplementation(async () => ({ ok: true, id: 'c1', status: 'pending', round: 1, title: '', messages: [] }));
+
+    app = createApp(App);
+    app.mount(el);
+    await flush();
+
+    // Reader places refresh in the global header's session-note area,
+    // not in the list action row.
+    const header = el.querySelector('.site-nav');
+    const refresh = header.querySelector('.session-note .nav-refresh');
+    expect(refresh).not.toBeNull();
+    expect(refresh.textContent).toContain('更新');
+    expect(el.querySelector('.chat-actions .nav-refresh')).toBeNull();
+    expect(el.querySelector('.chat-actions .unread-pill')).toBeNull();
+
+    // Clicking it starts a second fetch right away. While that fetch
+    // is in flight the button shows the reader-style busy label and
+    // the existing list stays on screen (no blocking loading row).
+    refresh.click();
+    await flush();
+    expect(listRequests).toHaveBeenCalledTimes(2);
+    expect(refresh.disabled).toBe(true);
+    expect(refresh.textContent).toContain('更新中…');
+    expect(el.querySelector('.req-title')?.textContent).toContain('ポーリング確認用の会話');
+    expect(el.textContent).not.toContain('読み込んでいます…');
+
+    releaseRefresh();
+    await flush();
+    expect(refresh.disabled).toBe(false);
+    expect(refresh.textContent).toContain('更新');
+    expect(header.querySelector('.session-note .unread-pill')?.textContent).toContain('未読 1');
+    expect(el.querySelector('.unread-dot')).not.toBeNull();
+  });
+
   it('refreshes immediately when returning to the foreground after more than 60s away', async () => {
     listRequests.mockImplementation(async () => ({ ok: true, requests: [{ ...THREAD }] }));
     result.mockImplementation(async () => ({ ok: true, id: 'c1', status: 'pending', round: 1, title: '', messages: [] }));
