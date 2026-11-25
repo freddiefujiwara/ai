@@ -211,8 +211,9 @@ async function openThread(id, { push = true } = {}) {
   if (messages.value.length > 0) await scrollToLatest();
 }
 
-// 画面の「← 一覧」は履歴に積む (push)。削除後など内部都合の遷移は
-// 呼び出し側の指定に従う。
+// 一覧への遷移 (削除後など内部都合のもの) は履歴に積む (push) が
+// 原則で、呼び出し側の指定に従う。画面上の戻る導線はヘッダーの
+// タイトルリンクとブラウザの戻るが担う。
 function backToList({ push = true } = {}) {
   stopPolling();
   view.value = 'list';
@@ -387,7 +388,7 @@ onBeforeUnmount(() => {
       <span class="brand-mark">M</span>
       <span class="brand-text">
         <span class="brand-name">Muse</span>
-        <span class="brand-sub">Claudeと話す</span>
+        <span class="brand-sub">Museと話す</span>
       </span>
     </a>
     <span></span>
@@ -435,7 +436,6 @@ onBeforeUnmount(() => {
 
     <template v-else>
       <div class="thread-head">
-        <button class="ghost-btn" type="button" @click="backToList">← 一覧</button>
         <span class="thread-title">{{ currentId ? title : '新しい会話' }}</span>
       </div>
       <div v-if="currentId" class="thread-actions">
