@@ -12,8 +12,8 @@ function fakeStorage() {
 
 describe('session storage', () => {
   it('splits keys between production and staging', () => {
-    expect(sessionKey({})).toBe('muse:session:v1');
-    expect(sessionKey({ VITE_STAGING: '1' })).toBe('muse:session:v1:staging');
+    expect(sessionKey({})).toBe('ai:session:v1');
+    expect(sessionKey({ VITE_STAGING: '1' })).toBe('ai:session:v1:staging');
   });
 
   it('round-trips a session and drops it after expiry', () => {

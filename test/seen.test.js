@@ -16,8 +16,8 @@ const req = (id, status, round) => ({ id, status, round });
 
 describe('seen storage', () => {
   it('splits keys between production and staging', () => {
-    expect(seenKey({})).toBe('muse:seen:v1');
-    expect(seenKey({ VITE_STAGING: '1' })).toBe('muse:seen:v1:staging');
+    expect(seenKey({})).toBe('ai:seen:v1');
+    expect(seenKey({ VITE_STAGING: '1' })).toBe('ai:seen:v1:staging');
   });
 
   it('returns null when the key is absent (first run) and {} when stored empty', () => {

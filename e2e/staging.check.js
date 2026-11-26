@@ -1,20 +1,20 @@
 import { test, expect } from "@playwright/test";
 
-// muse staging gate: the staging preview must load, show the STAGING
+// ai staging gate: the staging preview must load, show the STAGING
 // banner, and render the sign-in gate without console errors. Login is
 // not performed here (read-only check): with no session the sign-in
 // gate is the expected first screen.
-test("muse staging page loads with banner and sign-in gate", async ({ page }) => {
+test("ai staging page loads with banner and sign-in gate", async ({ page }) => {
   const errors = [];
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
   page.on("pageerror", (err) => errors.push(String(err)));
 
-  const resp = await page.goto("/muse/staging/");
+  const resp = await page.goto("/ai/staging/");
   expect(resp.status()).toBe(200);
   await expect(page.getByText("STAGING")).toBeVisible();
-  await expect(page.locator(".brand-name")).toHaveText("Muse");
+  await expect(page.locator(".brand-name")).toHaveText("AI");
   await expect(page.getByText("Googleログインが必要です")).toBeVisible();
   const footer = page.locator(".site-footer");
   await expect(footer).toBeVisible();
@@ -27,13 +27,13 @@ test("muse staging page loads with banner and sign-in gate", async ({ page }) =>
 
 // Logged-in flows cannot use a real Google sign-in in CI, so this test
 // seeds a dummy session in localStorage (staging key) and mocks every
-// muse-gas /exec call with page.route. The API URL is baked in at build
+// ai-gas /exec call with page.route. The API URL is baked in at build
 // time, but it always points at script.google.com/macros/..., so one
 // route pattern captures list/result (GET) and rename/delete (POST)
 // regardless of which deployment the build was pointed at. All data
 // below is dummy data. The result response is held on a gate promise
 // (not a sleep) so the loading UI check is deterministic.
-test("muse staging mocked session: titles, loading UI, rename and delete", async ({ page }) => {
+test("ai staging mocked session: titles, loading UI, rename and delete", async ({ page }) => {
   const state = {
     requests: [
       {
@@ -55,7 +55,7 @@ test("muse staging mocked session: titles, loading UI, rename and delete", async
 
   await page.addInitScript(() => {
     localStorage.setItem(
-      "muse:session:v1:staging",
+      "ai:session:v1:staging",
       JSON.stringify({ token: "e2e-dummy-session", role: "owner", expiresAt: "2999-01-01T00:00:00.000Z" }),
     );
   });
@@ -104,7 +104,7 @@ test("muse staging mocked session: titles, loading UI, rename and delete", async
 
   page.on("dialog", (dialog) => dialog.accept());
 
-  const resp = await page.goto("/muse/staging/");
+  const resp = await page.goto("/ai/staging/");
   expect(resp.status()).toBe(200);
 
   // List: an unnamed conversation shows its preview, a named one its title.
@@ -172,9 +172,9 @@ test("muse staging mocked session: titles, loading UI, rename and delete", async
   expect(sent.some((s) => s.action === "delete" && s.body && s.body.id === "e2e-2")).toBeTruthy();
 });
 
-test("muse staging header keeps the brand on one line at phone width", async ({ page }) => {
+test("ai staging header keeps the brand on one line at phone width", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  const resp = await page.goto("/muse/staging/");
+  const resp = await page.goto("/ai/staging/");
   expect(resp.status()).toBe(200);
   const box = await page.locator(".brand-name").boundingBox();
   expect(box).not.toBeNull();
@@ -188,13 +188,13 @@ test("muse staging header keeps the brand on one line at phone width", async ({ 
 // no horizontal scrolling, and every title / row box inside the
 // viewport with the ellipsis engaged. The thread header title is
 // checked the same way.
-test("muse staging long titles do not overflow at phone width", async ({ page }) => {
+test("ai staging long titles do not overflow at phone width", async ({ page }) => {
   const LONG =
     "これはとても長いダミーの会話タイトルです。画面幅に収まるかどうかを確認するための文字列で、まだまだ続きます。";
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => {
     localStorage.setItem(
-      "muse:session:v1:staging",
+      "ai:session:v1:staging",
       JSON.stringify({ token: "e2e-dummy-session", role: "owner", expiresAt: "2999-01-01T00:00:00.000Z" }),
     );
   });
@@ -242,7 +242,7 @@ test("muse staging long titles do not overflow at phone width", async ({ page })
     return json({ ok: false, error: "unknown action" });
   });
 
-  const resp = await page.goto("/muse/staging/");
+  const resp = await page.goto("/ai/staging/");
   expect(resp.status()).toBe(200);
   await expect(page.locator(".req-title").first()).toBeVisible();
 
@@ -284,11 +284,11 @@ test("muse staging long titles do not overflow at phone width", async ({ page })
 // page must be scrolled to the bottom and the last message must be
 // inside the viewport. Polling refreshes do not re-scroll (only the
 // initial open does), which this test does not need to simulate.
-test("muse staging opening a thread scrolls to the latest message", async ({ page }) => {
+test("ai staging opening a thread scrolls to the latest message", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => {
     localStorage.setItem(
-      "muse:session:v1:staging",
+      "ai:session:v1:staging",
       JSON.stringify({ token: "e2e-dummy-session", role: "owner", expiresAt: "2999-01-01T00:00:00.000Z" }),
     );
   });
@@ -336,7 +336,7 @@ test("muse staging opening a thread scrolls to the latest message", async ({ pag
     return json({ ok: false, error: "unknown action" });
   });
 
-  const resp = await page.goto("/muse/staging/");
+  const resp = await page.goto("/ai/staging/");
   expect(resp.status()).toBe(200);
   await page.locator(".request-item").first().locator(".request-row").click();
   await expect(page.getByText("最後のメッセージです")).toBeAttached();
@@ -359,11 +359,11 @@ test("muse staging opening a thread scrolls to the latest message", async ({ pag
 });
 
 // Per-thread URLs: opening a conversation from the list rewrites
-// the URL to /muse/staging/<id>, a reload (or a direct visit to
+// the URL to /ai/staging/<id>, a reload (or a direct visit to
 // that URL) reopens the same conversation, and the browser back
 // button returns to the list URL. Same mocked-session setup as
 // above; all data is dummy data.
-test("muse staging per-thread URLs: open, reload, back and deep link", async ({ page }) => {
+test("ai staging per-thread URLs: open, reload, back and deep link", async ({ page }) => {
   const requests = [
     {
       id: "route-1", status: "replied", round: 1,
@@ -378,7 +378,7 @@ test("muse staging per-thread URLs: open, reload, back and deep link", async ({ 
   ];
   await page.addInitScript(() => {
     localStorage.setItem(
-      "muse:session:v1:staging",
+      "ai:session:v1:staging",
       JSON.stringify({ token: "e2e-dummy-session", role: "owner", expiresAt: "2999-01-01T00:00:00.000Z" }),
     );
   });
@@ -412,28 +412,28 @@ test("muse staging per-thread URLs: open, reload, back and deep link", async ({ 
   });
 
   // Open from the list: the URL becomes the thread URL.
-  const resp = await page.goto("/muse/staging/");
+  const resp = await page.goto("/ai/staging/");
   expect(resp.status()).toBe(200);
   await page
     .locator(".request-item", { hasText: "ルート確認用の会話1" })
     .locator(".request-row")
     .click();
   await expect(page.getByText("route-1 への返信です")).toBeVisible();
-  await expect(page).toHaveURL(/\/muse\/staging\/route-1$/);
+  await expect(page).toHaveURL(/\/ai\/staging\/route-1$/);
 
   // Reload: the same conversation reopens directly from the URL.
   await page.reload();
   await expect(page.getByText("route-1 への返信です")).toBeVisible();
   await expect(page.locator(".thread-title")).toHaveText("ルート確認用の会話1");
-  await expect(page).toHaveURL(/\/muse\/staging\/route-1$/);
+  await expect(page).toHaveURL(/\/ai\/staging\/route-1$/);
 
   // Browser back: back to the list and the list URL.
   await page.goBack();
   await expect(page.locator(".req-title", { hasText: "ルート確認用の会話2" })).toBeVisible();
-  await expect(page).toHaveURL(/\/muse\/staging\/$/);
+  await expect(page).toHaveURL(/\/ai\/staging\/$/);
 
   // Deep link: visiting a thread URL directly opens that thread.
-  await page.goto("/muse/staging/route-2");
+  await page.goto("/ai/staging/route-2");
   await expect(page.getByText("route-2 への返信です")).toBeVisible();
   await expect(page.locator(".thread-title")).toHaveText("ルート確認用の会話2");
 });
@@ -444,7 +444,7 @@ test("muse staging per-thread URLs: open, reload, back and deep link", async ({ 
 // the row and a "未読 N" pill, until the thread is opened. The page
 // clock is faked so the 60s interval fires deterministically; all
 // data is dummy data and every /exec call is mocked as above.
-test("muse staging list auto-refresh flags unread replies until opened", async ({ page }) => {
+test("ai staging list auto-refresh flags unread replies until opened", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-11-25T03:00:00.000Z") });
   const state = {
     requests: [
@@ -457,12 +457,12 @@ test("muse staging list auto-refresh flags unread replies until opened", async (
   };
   await page.addInitScript(() => {
     localStorage.setItem(
-      "muse:session:v1:staging",
+      "ai:session:v1:staging",
       JSON.stringify({ token: "e2e-dummy-session", role: "owner", expiresAt: "2999-01-01T00:00:00.000Z" }),
     );
     // Seen storage initialized (empty): a new reply counts as unread.
-    if (localStorage.getItem("muse:seen:v1:staging") === null) {
-      localStorage.setItem("muse:seen:v1:staging", "{}");
+    if (localStorage.getItem("ai:seen:v1:staging") === null) {
+      localStorage.setItem("ai:seen:v1:staging", "{}");
     }
   });
   await page.route(/script\.google\.com\/macros\//, async (route) => {
@@ -494,7 +494,7 @@ test("muse staging list auto-refresh flags unread replies until opened", async (
     return json({ ok: false, error: "unknown action" });
   });
 
-  const resp = await page.goto("/muse/staging/");
+  const resp = await page.goto("/ai/staging/");
   expect(resp.status()).toBe(200);
   await expect(page.locator(".req-title", { hasText: "自動更新確認用の会話" })).toBeVisible();
   await expect(page.locator(".unread-dot")).toHaveCount(0);
@@ -527,7 +527,7 @@ test("muse staging list auto-refresh flags unread replies until opened", async (
 // each linked to the original url. The dummy image url is
 // intercepted and served a 1x1 PNG so the thumbnail really loads.
 // All data below is dummy data.
-test("muse staging thread header refresh and reply attachments", async ({ page }) => {
+test("ai staging thread header refresh and reply attachments", async ({ page }) => {
   const IMG_URL = "https://example.com/e2e-dummy.png";
   const PNG_1PX = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
@@ -544,11 +544,11 @@ test("muse staging thread header refresh and reply attachments", async ({ page }
 
   await page.addInitScript(() => {
     localStorage.setItem(
-      "muse:session:v1:staging",
+      "ai:session:v1:staging",
       JSON.stringify({ token: "e2e-dummy-session", role: "owner", expiresAt: "2999-01-01T00:00:00.000Z" }),
     );
-    if (localStorage.getItem("muse:seen:v1:staging") === null) {
-      localStorage.setItem("muse:seen:v1:staging", "{}");
+    if (localStorage.getItem("ai:seen:v1:staging") === null) {
+      localStorage.setItem("ai:seen:v1:staging", "{}");
     }
   });
   await page.route("https://example.com/**", async (route) => {
@@ -600,7 +600,7 @@ test("muse staging thread header refresh and reply attachments", async ({ page }
     return json({ ok: false, error: "unknown action" });
   });
 
-  const resp = await page.goto("/muse/staging/");
+  const resp = await page.goto("/ai/staging/");
   expect(resp.status()).toBe(200);
   await page
     .locator(".request-item", { hasText: "添付確認の依頼です" })
@@ -649,7 +649,7 @@ test("muse staging thread header refresh and reply attachments", async ({ page }
 // action row any more. The refresh runs the same background update
 // as the polling, so the list stays on screen while it is in flight
 // (the second list response is gated to observe that state).
-test("muse staging header refresh matches reader layout and background behavior", async ({ page }) => {
+test("ai staging header refresh matches reader layout and background behavior", async ({ page }) => {
   const state = {
     requests: [
       {
@@ -666,11 +666,11 @@ test("muse staging header refresh matches reader layout and background behavior"
 
   await page.addInitScript(() => {
     localStorage.setItem(
-      "muse:session:v1:staging",
+      "ai:session:v1:staging",
       JSON.stringify({ token: "e2e-dummy-session", role: "owner", expiresAt: "2999-01-01T00:00:00.000Z" }),
     );
-    if (localStorage.getItem("muse:seen:v1:staging") === null) {
-      localStorage.setItem("muse:seen:v1:staging", "{}");
+    if (localStorage.getItem("ai:seen:v1:staging") === null) {
+      localStorage.setItem("ai:seen:v1:staging", "{}");
     }
   });
   await page.route(/script\.google\.com\/macros\//, async (route) => {
@@ -694,7 +694,7 @@ test("muse staging header refresh matches reader layout and background behavior"
     return json({ ok: false, error: "unknown action" });
   });
 
-  const resp = await page.goto("/muse/staging/");
+  const resp = await page.goto("/ai/staging/");
   expect(resp.status()).toBe(200);
   await expect(page.locator(".req-title", { hasText: "手動更新確認用の会話" })).toBeVisible();
 

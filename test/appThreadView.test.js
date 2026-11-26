@@ -37,10 +37,10 @@ beforeEach(() => {
   window.history.pushState(null, '', '/');
   localStorage.clear();
   localStorage.setItem(
-    'muse:session:v1',
+    'ai:session:v1',
     JSON.stringify({ token: 'dummy', role: 'owner', expiresAt: '2999-01-01T00:00:00.000Z' }),
   );
-  localStorage.setItem('muse:seen:v1', '{}');
+  localStorage.setItem('ai:seen:v1', '{}');
   document.body.innerHTML = '';
   el = document.createElement('div');
   document.body.appendChild(el);

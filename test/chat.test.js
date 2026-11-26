@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeRequests, mergeMessages, threadTitle, shouldPoll, formatDateTime, statusLabel, displayTitle } from '../src/lib/chat.js';
+import { normalizeRequests, mergeMessages, threadTitle, shouldPoll, formatDateTime, statusLabel, displayTitle, normalizeEngine, engineLabel } from '../src/lib/chat.js';
 
 describe('normalizeRequests', () => {
   it('drops junk and duplicate ids, keeps order', () => {
@@ -26,6 +26,29 @@ describe('normalizeRequests', () => {
   });
   it('returns [] for non-arrays', () => {
     expect(normalizeRequests(null)).toEqual([]);
+  });
+  it('carries the engine, defaulting anything but groq to Muse', () => {
+    const out = normalizeRequests([
+      { id: 'a', engine: 'groq' },
+      { id: 'b', engine: 'Muse' },
+      { id: 'c' },
+      { id: 'd', engine: 'bogus' },
+    ]);
+    expect(out.map((r) => r.engine)).toEqual(['groq', 'Muse', 'Muse', 'Muse']);
+  });
+});
+
+describe('engine helpers', () => {
+  it('normalizeEngine keeps only groq', () => {
+    expect(normalizeEngine('groq')).toBe('groq');
+    expect(normalizeEngine('Muse')).toBe('Muse');
+    expect(normalizeEngine(undefined)).toBe('Muse');
+    expect(normalizeEngine(null)).toBe('Muse');
+  });
+  it('engineLabel names both engines', () => {
+    expect(engineLabel('groq')).toBe('Groq');
+    expect(engineLabel('Muse')).toBe('Muse');
+    expect(engineLabel(undefined)).toBe('Muse');
   });
 });
 

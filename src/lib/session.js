@@ -4,7 +4,7 @@
 import { isStagingBuild } from '../staging-banner.js';
 
 export function sessionKey(env) {
-  return isStagingBuild(env) ? 'muse:session:v1:staging' : 'muse:session:v1';
+  return isStagingBuild(env) ? 'ai:session:v1:staging' : 'ai:session:v1';
 }
 
 export function saveSession(session, storage = localStorage, env) {

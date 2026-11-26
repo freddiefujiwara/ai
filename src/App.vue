@@ -3,7 +3,8 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { GOOGLE_CLIENT_ID } from './config.js';
 import { loadSession, saveSession, clearSession } from './lib/session.js';
 import { exchangeSession, ask, answer, result, listRequests, rename, deleteRequest } from './lib/api.js';
-import { normalizeRequests, mergeMessages, threadTitle, statusLabel, shouldPoll, formatDateTime, displayTitle } from './lib/chat.js';
+import { normalizeRequests, mergeMessages, threadTitle, statusLabel, shouldPoll, formatDateTime, displayTitle, normalizeEngine, engineLabel } from './lib/chat.js';
+import { loadEnginePref, saveEnginePref } from './lib/engine.js';
 import { threadIdFromPath, threadPath, listPath } from './lib/route.js';
 import { loadSeen, saveSeen, seedSeen, markSeen, pruneSeen, unreadIds } from './lib/seen.js';
 
@@ -28,6 +29,14 @@ const listError = ref('');
 const currentId = ref(null);
 const currentStatus = ref('');
 const currentTitle = ref('');
+// 会話のエンジン。既存会話はサーバーの値が正 (currentEngine)、
+// 新規会話は端末に覚えた前回の選択 (newEngine) から始める。
+const currentEngine = ref('Muse');
+const newEngine = ref('Muse');
+try { newEngine.value = loadEnginePref(); } catch { /* 既定の Muse */ }
+const effectiveEngine = computed(() => (currentId.value ? currentEngine.value : newEngine.value));
+const composerPlaceholder = computed(() =>
+  effectiveEngine.value === 'groq' ? 'Groqへの質問を書く（即時応答）' : 'Claudeへの依頼を書く');
 const messages = ref([]);
 const draft = ref('');
 const sending = ref(false);
@@ -295,6 +304,7 @@ function openNew() {
   currentId.value = null;
   currentStatus.value = '';
   currentTitle.value = '';
+  currentEngine.value = 'Muse';
   messages.value = [];
   threadError.value = '';
   editingTitle.value = false;
@@ -315,7 +325,9 @@ async function scrollToLatest() {
 // エラーを一覧側に出し、URLも一覧へ戻す (リトライはしない)。
 async function openThread(id, { push = true } = {}) {
   currentId.value = id;
-  currentTitle.value = (requests.value.find((r) => r.id === id)?.title || '');
+  const entry = requests.value.find((r) => r.id === id);
+  currentTitle.value = entry?.title || '';
+  currentEngine.value = normalizeEngine(entry?.engine);
   messages.value = [];
   threadError.value = '';
   editingTitle.value = false;
@@ -384,6 +396,7 @@ async function refreshThread() {
   try {
     const data = await result(session.value.token, currentId.value);
     currentStatus.value = data.status;
+    if (typeof data.engine === 'string') currentEngine.value = normalizeEngine(data.engine);
     if (typeof data.title === 'string') currentTitle.value = data.title;
     messages.value = mergeMessages(messages.value, data.messages);
     // 開いている会話の返信は見た扱いにする (詳細側のポーリングで
@@ -421,9 +434,11 @@ async function send() {
   threadError.value = '';
   try {
     if (!currentId.value) {
-      const data = await ask(session.value.token, text);
+      const data = await ask(session.value.token, text, newEngine.value);
       currentId.value = data.id;
       currentStatus.value = data.status;
+      currentEngine.value = normalizeEngine(data.engine || newEngine.value);
+      saveEnginePref(newEngine.value);
       // 新しい会話はIDが発行された時点で、その会話のURLにする。
       pushThreadUrl(data.id);
     } else {
@@ -566,10 +581,10 @@ onBeforeUnmount(() => {
 <template>
   <nav class="site-nav">
     <a class="brand" :href="appBase">
-      <span class="brand-mark">M</span>
+      <span class="brand-mark">智</span>
       <span class="brand-text">
-        <span class="brand-name">Muse</span>
-        <span class="brand-sub">Museと話す</span>
+        <span class="brand-name">AI</span>
+        <span class="brand-sub">AIと話す</span>
       </span>
     </a>
     <span></span>
@@ -621,6 +636,7 @@ onBeforeUnmount(() => {
                 <span class="req-title">{{ displayTitle(r) }}</span>
                 <span class="req-sub">
                   <span class="status-chip" :class="r.status">{{ statusLabel(r.status) }}</span>
+                  <span class="engine-chip" :class="r.engine">{{ engineLabel(r.engine) }}</span>
                   <span>{{ formatDateTime(r.created_at) }}</span>
                   <span class="req-meta">往復 {{ r.round }}</span>
                 </span>
@@ -635,6 +651,7 @@ onBeforeUnmount(() => {
     <template v-else>
       <div class="thread-head">
         <span class="thread-title">{{ currentId ? title : '新しい会話' }}</span>
+        <span v-if="currentId" class="engine-chip" :class="currentEngine">{{ engineLabel(currentEngine) }}</span>
       </div>
       <div v-if="currentId" class="thread-actions">
         <template v-if="editingTitle">
@@ -688,8 +705,24 @@ onBeforeUnmount(() => {
       </div>
       <p v-if="isPending && !threadLoading" class="pending-note"><span class="spinner"></span>返信を待っています（目安1〜2分、最大10分）</p>
       <p v-if="currentStatus === 'timeout' && !threadLoading" class="error">10分経っても返信がありませんでした。続きを送ると再開できます。</p>
+      <div v-if="!currentId" class="engine-toggle" role="group" aria-label="相手のAIを選ぶ">
+        <button
+          type="button"
+          class="engine-option"
+          :class="{ active: newEngine === 'Muse' }"
+          :aria-pressed="newEngine === 'Muse'"
+          @click="newEngine = 'Muse'"
+        >Muse<span class="engine-note">じっくり・メール経由</span></button>
+        <button
+          type="button"
+          class="engine-option"
+          :class="{ active: newEngine === 'groq' }"
+          :aria-pressed="newEngine === 'groq'"
+          @click="newEngine = 'groq'"
+        >Groq<span class="engine-note">即時応答</span></button>
+      </div>
       <form class="composer" @submit.prevent="send">
-        <textarea v-model="draft" rows="3" placeholder="Museへの依頼を書く" :disabled="sending || threadLoading"></textarea>
+        <textarea v-model="draft" rows="3" :placeholder="composerPlaceholder" :disabled="sending || threadLoading"></textarea>
         <button class="primary-btn" type="submit" :disabled="sending || threadLoading || !draft.trim()">{{ sending ? '送信中…' : '送信' }}</button>
       </form>
     </template>
