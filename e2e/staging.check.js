@@ -359,7 +359,7 @@ test("ai staging opening a thread scrolls to the latest message", async ({ page 
 });
 
 // Per-thread URLs: opening a conversation from the list rewrites
-// the URL to /muse/staging/<id>, a reload (or a direct visit to
+// the URL to /ai/staging/<id>, a reload (or a direct visit to
 // that URL) reopens the same conversation, and the browser back
 // button returns to the list URL. Same mocked-session setup as
 // above; all data is dummy data.
@@ -419,21 +419,21 @@ test("ai staging per-thread URLs: open, reload, back and deep link", async ({ pa
     .locator(".request-row")
     .click();
   await expect(page.getByText("route-1 への返信です")).toBeVisible();
-  await expect(page).toHaveURL(/\/muse\/staging\/route-1$/);
+  await expect(page).toHaveURL(/\/ai\/staging\/route-1$/);
 
   // Reload: the same conversation reopens directly from the URL.
   await page.reload();
   await expect(page.getByText("route-1 への返信です")).toBeVisible();
   await expect(page.locator(".thread-title")).toHaveText("ルート確認用の会話1");
-  await expect(page).toHaveURL(/\/muse\/staging\/route-1$/);
+  await expect(page).toHaveURL(/\/ai\/staging\/route-1$/);
 
   // Browser back: back to the list and the list URL.
   await page.goBack();
   await expect(page.locator(".req-title", { hasText: "ルート確認用の会話2" })).toBeVisible();
-  await expect(page).toHaveURL(/\/muse\/staging\/$/);
+  await expect(page).toHaveURL(/\/ai\/staging\/$/);
 
   // Deep link: visiting a thread URL directly opens that thread.
-  await page.goto("/muse/staging/route-2");
+  await page.goto("/ai/staging/route-2");
   await expect(page.getByText("route-2 への返信です")).toBeVisible();
   await expect(page.locator(".thread-title")).toHaveText("ルート確認用の会話2");
 });
