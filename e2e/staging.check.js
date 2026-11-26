@@ -159,8 +159,12 @@ test("muse staging mocked session: titles, loading UI, rename and delete", async
   // confirmation): the last item goes and the empty state shows.
   const lastItem = page.locator(".request-item", { hasText: "付けた名前の会話" });
   await lastItem.getByRole("button", { name: "削除", exact: true }).click();
-  await expect(lastItem.locator(".delete-confirm")).toContainText("この会話を削除しますか");
-  await lastItem
+  // Once the confirmation opens, the row no longer shows the title,
+  // so a hasText filter cannot find it anymore. Only one item is
+  // left at this point: address it directly.
+  const onlyItem = page.locator(".request-item");
+  await expect(onlyItem.locator(".delete-confirm")).toContainText("この会話を削除しますか");
+  await onlyItem
     .locator(".delete-confirm")
     .getByRole("button", { name: "本当に削除" })
     .click();
