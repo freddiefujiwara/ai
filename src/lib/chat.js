@@ -10,6 +10,21 @@ export function statusLabel(status) {
   return STATUS_LABELS[status] || String(status || '');
 }
 
+// 会話のエンジン (ai-gas の engine 列)。'groq' 以外はすべて 'Muse'
+// として扱う (engine 列が無い旧データ・旧バックエンド互換)。
+export const ENGINE_LABELS = {
+  Muse: 'Muse',
+  groq: 'Groq',
+};
+
+export function normalizeEngine(engine) {
+  return engine === 'groq' ? 'groq' : 'Muse';
+}
+
+export function engineLabel(engine) {
+  return ENGINE_LABELS[normalizeEngine(engine)];
+}
+
 // 一覧の並びは API が新しい順で返す前提だが、欠けた項目は落とし、
 // id の重複は先勝ちで除く (背景更新で同じ一覧を何度も取り込むため)。
 export function normalizeRequests(requests) {
@@ -22,6 +37,7 @@ export function normalizeRequests(requests) {
     seen.add(r.id);
     out.push({
       id: r.id,
+      engine: normalizeEngine(r.engine),
       status: typeof r.status === 'string' ? r.status : 'pending',
       round: Number(r.round || 1),
       created_at: r.created_at || '',

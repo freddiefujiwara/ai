@@ -44,7 +44,16 @@ describe('api wrapper', () => {
     const f = okFetcher({ ok: true, sessionToken: 's' }, seen);
     await exchangeSession('id-token', { apiUrl: 'https://example.invalid/exec', fetcher: f });
     expect(JSON.parse(seen[0].init.body)).toEqual({ action: 'exchange_session', idToken: 'id-token' });
-    await ask('s', 'hello', { apiUrl: 'https://example.invalid/exec', fetcher: f });
+    await ask('s', 'hello', undefined, { apiUrl: 'https://example.invalid/exec', fetcher: f });
     expect(JSON.parse(seen[1].init.body)).toEqual({ action: 'ask', sessionToken: 's', prompt: 'hello' });
+  });
+
+  it('ask sends engine only for groq conversations', async () => {
+    const seen = [];
+    const f = okFetcher({ ok: true, id: 'x', status: 'replied', engine: 'groq' }, seen);
+    await ask('s', 'quick question', 'groq', { apiUrl: 'https://example.invalid/exec', fetcher: f });
+    expect(JSON.parse(seen[0].init.body)).toEqual({ action: 'ask', sessionToken: 's', prompt: 'quick question', engine: 'groq' });
+    await ask('s', 'deep request', 'Muse', { apiUrl: 'https://example.invalid/exec', fetcher: f });
+    expect(JSON.parse(seen[1].init.body)).toEqual({ action: 'ask', sessionToken: 's', prompt: 'deep request' });
   });
 });

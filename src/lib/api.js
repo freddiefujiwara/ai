@@ -50,9 +50,13 @@ export function exchangeSession(idToken, opts) {
   return postJson({ action: 'exchange_session', idToken }, opts);
 }
 
-// 新しい依頼を送る。-> { ok, id, status: 'pending' }
-export function ask(sessionToken, prompt, opts) {
-  return postJson({ action: 'ask', sessionToken, prompt }, opts);
+// 新しい依頼を送る。-> { ok, id, status, engine }
+// engine は 'Muse' (メール橋・非同期) か 'groq' (即時応答)。省略時は
+// サーバー側の既定 (Muse) になるので、groq のときだけ送る。
+export function ask(sessionToken, prompt, engine, opts) {
+  const body = { action: 'ask', sessionToken, prompt };
+  if (engine === 'groq') body.engine = 'groq';
+  return postJson(body, opts);
 }
 
 // 同じ会話に続きを送る。-> { ok, id, status: 'pending', round }

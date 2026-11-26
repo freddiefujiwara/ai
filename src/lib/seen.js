@@ -5,7 +5,7 @@
 import { isStagingBuild } from '../staging-banner.js';
 
 export function seenKey(env) {
-  return isStagingBuild(env) ? 'muse:seen:v1:staging' : 'muse:seen:v1';
+  return isStagingBuild(env) ? 'ai:seen:v1:staging' : 'ai:seen:v1';
 }
 
 // 記録の形: { [会話ID]: { repliedRound: number } }
