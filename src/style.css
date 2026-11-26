@@ -702,6 +702,23 @@ button.ghost.active {
   cursor: default;
 }
 
+/* 削除のインライン確認 (reader の .delete-confirm と同じ流儀):
+   行・操作行の中に展開し、確認中は他のボタンを出さない。 */
+.delete-confirm {
+  flex: 1;
+  min-width: 0;
+}
+
+.delete-confirm p {
+  margin: 0 0 8px;
+}
+
+.delete-confirm-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .thread-actions {
   display: flex;
   gap: 8px;
