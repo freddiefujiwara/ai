@@ -134,18 +134,39 @@ test("muse staging mocked session: titles, loading UI, rename and delete", async
     sent.some((s) => s.action === "rename" && s.body && s.body.id === "e2e-1" && s.body.title === "新しい名前"),
   ).toBeTruthy();
 
-  // Delete from the thread (dialog auto-accepted): a delete request is
-  // sent and the app returns to the list without the deleted item.
-  await page.locator(".thread-actions").getByRole("button", { name: "削除" }).click();
+  // Delete from the thread: the confirmation expands inline (no
+  // browser dialog). Cancel closes it without sending anything;
+  // confirming sends the delete and returns to the list without
+  // the deleted item.
+  await page.locator(".thread-actions").getByRole("button", { name: "削除", exact: true }).click();
+  await expect(page.locator(".thread-actions .delete-confirm")).toContainText("この会話を削除しますか");
+  await page
+    .locator(".thread-actions .delete-confirm")
+    .getByRole("button", { name: "キャンセル" })
+    .click();
+  await expect(page.locator(".thread-actions .delete-confirm")).toHaveCount(0);
+  expect(sent.some((s) => s.action === "delete")).toBeFalsy();
+  await page.locator(".thread-actions").getByRole("button", { name: "削除", exact: true }).click();
+  await page
+    .locator(".thread-actions .delete-confirm")
+    .getByRole("button", { name: "本当に削除" })
+    .click();
   await expect(page.locator(".req-title", { hasText: "付けた名前の会話" })).toBeVisible();
   await expect(page.locator(".req-title", { hasText: "新しい名前" })).toHaveCount(0);
   expect(sent.some((s) => s.action === "delete" && s.body && s.body.id === "e2e-1")).toBeTruthy();
 
-  // Delete from the list as well: the last item goes and the empty
-  // state shows.
-  await page
-    .locator(".request-item", { hasText: "付けた名前の会話" })
-    .getByRole("button", { name: "削除" })
+  // Delete from the list as well (same two-step inline
+  // confirmation): the last item goes and the empty state shows.
+  const lastItem = page.locator(".request-item", { hasText: "付けた名前の会話" });
+  await lastItem.getByRole("button", { name: "削除", exact: true }).click();
+  // Once the confirmation opens, the row no longer shows the title,
+  // so a hasText filter cannot find it anymore. Only one item is
+  // left at this point: address it directly.
+  const onlyItem = page.locator(".request-item");
+  await expect(onlyItem.locator(".delete-confirm")).toContainText("この会話を削除しますか");
+  await onlyItem
+    .locator(".delete-confirm")
+    .getByRole("button", { name: "本当に削除" })
     .click();
   await expect(page.getByText("まだ会話がありません")).toBeVisible();
   expect(sent.some((s) => s.action === "delete" && s.body && s.body.id === "e2e-2")).toBeTruthy();

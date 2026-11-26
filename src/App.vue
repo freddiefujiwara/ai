@@ -35,7 +35,15 @@ const threadError = ref('');
 const threadLoading = ref(false);
 const threadRefreshing = ref(false);
 let threadRefreshInFlight = null;
-const deleting = ref(false);
+// 削除のインライン確認 (reader のフィード削除と同じ流儀):
+// window.confirm は使わず、押した行・操作行の中に確認を展開する。
+// 同時に展開するのは1件だけで、実行中は対象IDを deletingId に持つ。
+const confirmDeleteId = ref(null);
+const deletingId = ref(null);
+// 削除済みIDの墓標: 削除前に始まった背景更新が古い一覧で完了しても、
+// 消した会話が復活しないようにする。サーバー側の一覧から消えた
+// ことが確認できたIDは、その時点で墓標を外す。
+const deletedIds = ref(new Set());
 const editingTitle = ref(false);
 const titleDraft = ref('');
 const savingTitle = ref(false);
@@ -164,7 +172,17 @@ function signOut() {
 // 取得した一覧を画面と「見た返信」の記録へ反映する。初回だけは、
 // その時点で既に返信が付いている会話を見た扱いにして初期化する。
 function applyList(data) {
-  requests.value = normalizeRequests(data.requests);
+  const server = normalizeRequests(data.requests);
+  if (deletedIds.value.size > 0) {
+    // 墓標がある間は、サーバーがまだ返している (=削除前の古い応答の
+    // 可能性がある) IDだけを除外して表示する。サーバーの一覧から
+    // 消えたIDは削除が確定したので墓標を外す。
+    const serverIds = new Set(server.map((r) => r.id));
+    deletedIds.value = new Set([...deletedIds.value].filter((id) => serverIds.has(id)));
+    requests.value = server.filter((r) => !deletedIds.value.has(r.id));
+  } else {
+    requests.value = server;
+  }
   if (seenMap.value === null) {
     seenMap.value = seedSeen(requests.value);
     saveSeen(seenMap.value);
@@ -280,6 +298,7 @@ function openNew() {
   messages.value = [];
   threadError.value = '';
   editingTitle.value = false;
+  confirmDeleteId.value = null;
   view.value = 'thread';
 }
 
@@ -300,6 +319,7 @@ async function openThread(id, { push = true } = {}) {
   messages.value = [];
   threadError.value = '';
   editingTitle.value = false;
+  confirmDeleteId.value = null;
   view.value = 'thread';
   threadLoading.value = true;
   let res;
@@ -446,46 +466,66 @@ async function saveTitle() {
   }
 }
 
-async function doDelete(id, label) {
-  if (deleting.value || !session.value || !id) return;
-  if (!window.confirm(`「${label}」を削除しますか？この操作は取り消せません。`)) return;
-  deleting.value = true;
+function askDeleteFromList(r) {
+  confirmDeleteId.value = r.id;
+}
+
+function askDeleteCurrent() {
+  if (currentId.value) confirmDeleteId.value = currentId.value;
+}
+
+function cancelDelete() {
+  if (deletingId.value) return;
+  confirmDeleteId.value = null;
+}
+
+// 削除が確定した会話を、その場で画面と記録から落とす。再取得を
+// 待たないので、成功した瞬間に一覧から消える (reader と同じ)。
+function applyDeletedLocally(id) {
+  deletedIds.value = new Set([...deletedIds.value, id]);
+  requests.value = requests.value.filter((r) => r.id !== id);
+  if (seenMap.value && seenMap.value[id]) {
+    const next = { ...seenMap.value };
+    delete next[id];
+    seenMap.value = next;
+    saveSeen(seenMap.value);
+  }
+  confirmDeleteId.value = null;
+  if (view.value === 'thread' && id === currentId.value) {
+    stopPolling();
+    currentId.value = null;
+    currentTitle.value = '';
+    messages.value = [];
+    backToList();
+  }
+}
+
+async function doDelete(id) {
+  if (deletingId.value || !session.value || !id) return;
+  deletingId.value = id;
   threadError.value = '';
   listError.value = '';
   try {
     await deleteRequest(session.value.token, id);
-    if (seenMap.value && seenMap.value[id]) {
-      const next = { ...seenMap.value };
-      delete next[id];
-      seenMap.value = next;
-      saveSeen(seenMap.value);
-    }
-    if (view.value === 'thread' && id === currentId.value) {
-      stopPolling();
-      currentId.value = null;
-      currentTitle.value = '';
-      messages.value = [];
-      backToList();
-    } else {
-      await loadList();
-    }
+    applyDeletedLocally(id);
   } catch (e) {
-    if (!handleAuthFailure(e)) {
+    if (handleAuthFailure(e)) return;
+    if (e && e.message === 'request not found') {
+      // 既に消えていた場合も、一覧から落として整合させる
+      // (reader の not_found の流儀)。
+      const wasThreadTarget = view.value === 'thread' && id === currentId.value;
+      applyDeletedLocally(id);
+      if (wasThreadTarget || view.value === 'list') listError.value = 'その会話は既に削除されています。';
+      else threadError.value = 'その会話は既に削除されています。';
+    } else {
+      // 確認は開いたままにして、その場で再試行できるようにする。
       const msg = '削除できませんでした。もう一度お試しください。';
       if (view.value === 'thread') threadError.value = msg;
       else listError.value = msg;
     }
   } finally {
-    deleting.value = false;
+    deletingId.value = null;
   }
-}
-
-function deleteFromList(r) {
-  doDelete(r.id, displayTitle(r));
-}
-
-function deleteCurrent() {
-  doDelete(currentId.value, title.value);
 }
 
 // 読み込めなかった添付画像はリンクごと隠す。壊れた画像アイコンを
@@ -567,18 +607,27 @@ onBeforeUnmount(() => {
       <p v-else-if="requests.length === 0" class="meta">まだ会話がありません。「新しい会話」から始められます。</p>
       <ul v-else class="request-list">
         <li v-for="r in requests" :key="r.id" class="request-item">
-          <button class="request-row" type="button" @click="openThread(r.id)">
-            <span v-if="unreadIdSet.has(r.id)" class="unread-dot" aria-label="未読の返信"></span>
-            <span class="req-main">
-              <span class="req-title">{{ displayTitle(r) }}</span>
-              <span class="req-sub">
-                <span class="status-chip" :class="r.status">{{ statusLabel(r.status) }}</span>
-                <span>{{ formatDateTime(r.created_at) }}</span>
-                <span class="req-meta">往復 {{ r.round }}</span>
+          <div v-if="confirmDeleteId === r.id" class="delete-confirm">
+            <p>この会話を削除しますか？メッセージもすべて削除されます。</p>
+            <div class="delete-confirm-actions">
+              <button class="danger-btn" type="button" :disabled="deletingId === r.id" @click="doDelete(r.id)">{{ deletingId === r.id ? '削除中...' : '本当に削除' }}</button>
+              <button class="ghost-btn" type="button" :disabled="deletingId === r.id" @click="cancelDelete">キャンセル</button>
+            </div>
+          </div>
+          <template v-else>
+            <button class="request-row" type="button" @click="openThread(r.id)">
+              <span v-if="unreadIdSet.has(r.id)" class="unread-dot" aria-label="未読の返信"></span>
+              <span class="req-main">
+                <span class="req-title">{{ displayTitle(r) }}</span>
+                <span class="req-sub">
+                  <span class="status-chip" :class="r.status">{{ statusLabel(r.status) }}</span>
+                  <span>{{ formatDateTime(r.created_at) }}</span>
+                  <span class="req-meta">往復 {{ r.round }}</span>
+                </span>
               </span>
-            </span>
-          </button>
-          <button class="danger-btn" type="button" :disabled="deleting" @click="deleteFromList(r)">削除</button>
+            </button>
+            <button class="danger-btn" type="button" @click="askDeleteFromList(r)">削除</button>
+          </template>
         </li>
       </ul>
     </template>
@@ -602,9 +651,16 @@ onBeforeUnmount(() => {
           <button class="ghost-btn" type="button" :disabled="savingTitle" @click="saveTitle">{{ savingTitle ? '保存中…' : '保存' }}</button>
           <button class="ghost-btn" type="button" :disabled="savingTitle" @click="cancelEditTitle">キャンセル</button>
         </template>
+        <div v-else-if="confirmDeleteId === currentId" class="delete-confirm">
+          <p>この会話を削除しますか？メッセージもすべて削除されます。</p>
+          <div class="delete-confirm-actions">
+            <button class="danger-btn" type="button" :disabled="deletingId === currentId" @click="doDelete(currentId)">{{ deletingId === currentId ? '削除中...' : '本当に削除' }}</button>
+            <button class="ghost-btn" type="button" :disabled="deletingId === currentId" @click="cancelDelete">キャンセル</button>
+          </div>
+        </div>
         <template v-else>
           <button class="ghost-btn" type="button" @click="startEditTitle">名前を変更</button>
-          <button class="danger-btn" type="button" :disabled="deleting" @click="deleteCurrent()">{{ deleting ? '削除中…' : '削除' }}</button>
+          <button class="danger-btn" type="button" @click="askDeleteCurrent()">削除</button>
         </template>
       </div>
       <p v-if="threadError" class="error">{{ threadError }}</p>
