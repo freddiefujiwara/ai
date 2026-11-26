@@ -7,6 +7,7 @@ import { normalizeRequests, mergeMessages, threadTitle, statusLabel, shouldPoll,
 import { loadEnginePref, saveEnginePref } from './lib/engine.js';
 import { threadIdFromPath, threadPath, listPath } from './lib/route.js';
 import { loadSeen, saveSeen, seedSeen, markSeen, pruneSeen, unreadIds } from './lib/seen.js';
+import { renderMarkdown } from './lib/markdown.js';
 
 // スレッド毎URLの土台。本番は "/muse/"、ステージングは
 // "/muse/staging/" (Vite の BASE_URL)。深リンクの復元は
@@ -101,6 +102,14 @@ const title = computed(() => {
   return threadTitle(messages.value, currentRequest.value?.created_at);
 });
 const isPending = computed(() => shouldPoll(currentStatus.value));
+// 返信 (受信側) だけ Markdown として描くための HTML を用意する。
+// 送信文は従来どおりプレーンテキストのまま (html は null)。
+const displayMessages = computed(() =>
+  messages.value.map((m) => ({
+    ...m,
+    html: m.direction === 'in' ? renderMarkdown(m.text) : null,
+  })),
+);
 
 function adoptSession(data) {
   const s = { token: data.sessionToken, role: data.role || 'owner', expiresAt: data.expiresAt || null };
@@ -683,8 +692,9 @@ onBeforeUnmount(() => {
       <p v-if="threadError" class="error">{{ threadError }}</p>
       <p v-if="threadLoading" class="meta thread-loading"><span class="spinner"></span>読み込んでいます…</p>
       <div v-else class="messages">
-        <div v-for="(m, i) in messages" :key="i" class="bubble" :class="m.direction">
-          {{ m.text }}<span class="bubble-meta">{{ formatDateTime(m.at) }}</span>
+        <div v-for="(m, i) in displayMessages" :key="i" class="bubble" :class="m.direction">
+          <div v-if="m.html !== null" class="md-body" v-html="m.html"></div>
+          <template v-else>{{ m.text }}</template><span class="bubble-meta">{{ formatDateTime(m.at) }}</span>
           <span v-if="m.attachments && m.attachments.length" class="bubble-attachments">
             <a
               v-for="(a, j) in m.attachments"

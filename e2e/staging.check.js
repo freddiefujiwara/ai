@@ -724,3 +724,84 @@ test("ai staging header refresh matches reader layout and background behavior", 
   await expect(page.locator(".chat-actions .unread-pill")).toHaveCount(0);
   expect(listCalls).toBe(2);
 });
+
+// Replies are rendered as Markdown (marked + DOMPurify): structure in
+// the reply becomes real elements, links open in a new tab, and raw
+// HTML / inline images in the reply never reach the DOM. Sent text is
+// not rendered: markdown source the user typed stays literal.
+test("ai staging mocked session: replies render as markdown, sent text stays plain", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "ai:session:v1:staging",
+      JSON.stringify({ token: "e2e-dummy-session", role: "owner", expiresAt: "2999-01-01T00:00:00.000Z" }),
+    );
+    if (localStorage.getItem("ai:seen:v1:staging") === null) {
+      localStorage.setItem("ai:seen:v1:staging", "{}");
+    }
+  });
+  await page.route(/script\.google\.com\/macros\//, async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    let action = url.searchParams.get("action");
+    if (req.method() === "POST") {
+      try {
+        action = JSON.parse(req.postData() || "{}").action;
+      } catch {
+        // keep the GET-derived action
+      }
+    }
+    const json = (obj) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(obj) });
+    if (action === "list") {
+      return json({
+        ok: true,
+        requests: [
+          {
+            id: "md-1", status: "replied", round: 1,
+            created_at: "2026-11-25T01:00:00.000Z", last_activity_at: "2026-11-25T01:05:00.000Z",
+            title: "", preview: "Markdown確認の依頼です",
+          },
+        ],
+      });
+    }
+    if (action === "result") {
+      return json({
+        ok: true, id: "md-1", status: "replied", round: 1, title: "",
+        created_at: "2026-11-25T01:00:00.000Z", last_activity_at: "2026-11-25T01:05:00.000Z",
+        messages: [
+          { round: 1, direction: "out", text: "送信側の **太字** です", at: "2026-11-25T01:00:00.000Z" },
+          {
+            round: 1, direction: "in",
+            text: "## 回答です\n\nこれは **太字** です\n\n- 項目1\n- 項目2\n\n[例](https://example.com) <script>alert(1)</script> ![代替](https://example.com/x.png)",
+            at: "2026-11-25T01:05:00.000Z",
+          },
+        ],
+      });
+    }
+    return json({ ok: false, error: "unknown action" });
+  });
+
+  const resp = await page.goto("/ai/staging/");
+  expect(resp.status()).toBe(200);
+  await page
+    .locator(".request-item", { hasText: "Markdown確認の依頼です" })
+    .locator(".request-row")
+    .click();
+
+  const body = page.locator(".bubble.in .md-body");
+  await expect(body.locator("h2")).toHaveText("回答です");
+  await expect(body.locator("strong")).toHaveText("太字");
+  await expect(body.locator("li")).toHaveCount(2);
+  const link = body.getByRole("link", { name: "例" });
+  await expect(link).toHaveAttribute("href", "https://example.com");
+  await expect(link).toHaveAttribute("target", "_blank");
+  // Sanitized: no script element, no inline image from the reply body.
+  await expect(body.locator("script")).toHaveCount(0);
+  await expect(body.locator("img")).toHaveCount(0);
+
+  // The sent bubble keeps the markdown source as literal plain text.
+  const out = page.locator(".bubble.out");
+  await expect(out.locator(".md-body")).toHaveCount(0);
+  await expect(out.locator("strong")).toHaveCount(0);
+  await expect(out).toContainText("**太字**");
+});

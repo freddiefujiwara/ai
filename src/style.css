@@ -604,6 +604,9 @@ button.ghost.active {
   background: var(--surface);
   border: 1px solid var(--border);
   border-bottom-left-radius: 4px;
+  /* 受信側は Markdown レンダリング後の HTML を出すので、
+     プレーンテキスト用の pre-wrap は外す (改行は要素が担う)。 */
+  white-space: normal;
 }
 
 .bubble .bubble-meta {
@@ -631,6 +634,123 @@ button.ghost.active {
   max-height: 180px;
   border-radius: 10px;
   object-fit: cover;
+}
+
+/* Markdown レンダリングした返信文 (受信側の吹き出し内だけ)。
+   吹き出しの幅 (画面幅の86%) に収まるよう、表とコードは
+   はみ出さず内側でスクロール/折り返す。 */
+.bubble .md-body {
+  min-width: 0;
+}
+
+.bubble .md-body > :first-child {
+  margin-top: 0;
+}
+
+.bubble .md-body > :last-child {
+  margin-bottom: 0;
+}
+
+.bubble .md-body p {
+  margin: 0.5em 0;
+}
+
+.bubble .md-body h1,
+.bubble .md-body h2,
+.bubble .md-body h3,
+.bubble .md-body h4,
+.bubble .md-body h5,
+.bubble .md-body h6 {
+  line-height: 1.4;
+  margin: 0.9em 0 0.4em;
+}
+
+.bubble .md-body h1 {
+  font-size: 1.3rem;
+}
+
+.bubble .md-body h2 {
+  font-size: 1.18rem;
+}
+
+.bubble .md-body h3 {
+  font-size: 1.06rem;
+}
+
+.bubble .md-body h4,
+.bubble .md-body h5,
+.bubble .md-body h6 {
+  font-size: 1rem;
+}
+
+.bubble .md-body ul,
+.bubble .md-body ol {
+  margin: 0.5em 0;
+  padding-left: 1.4em;
+}
+
+.bubble .md-body li {
+  margin: 0.2em 0;
+}
+
+.bubble .md-body a {
+  color: var(--link);
+  overflow-wrap: anywhere;
+}
+
+.bubble .md-body code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  background: var(--track);
+  border-radius: 6px;
+  padding: 0.1em 0.35em;
+  overflow-wrap: anywhere;
+}
+
+.bubble .md-body pre {
+  background: var(--track);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 0.6em 0;
+  overflow-x: auto;
+  line-height: 1.55;
+}
+
+.bubble .md-body pre code {
+  background: none;
+  padding: 0;
+  overflow-wrap: normal;
+}
+
+.bubble .md-body blockquote {
+  margin: 0.6em 0;
+  padding: 0.1em 0 0.1em 0.9em;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
+.bubble .md-body table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.92em;
+  line-height: 1.5;
+}
+
+.bubble .md-body th,
+.bubble .md-body td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.bubble .md-body hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.9em 0;
 }
 
 .composer {
